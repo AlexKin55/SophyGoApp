@@ -38,6 +38,27 @@ function App() {
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
   const [places, setPlaces] = useState<Place[]>([])
   const [placesLoading, setPlacesLoading] = useState(false)
+  const [mapZoom, setMapZoom] = useState(13)
+
+  const MAJOR_CATEGORIES = new Set([
+    'attraction',
+    'monument',
+    'castle',
+    'museum',
+    'cathedral',
+    'church',
+    'synagogue',
+    'mosque',
+    'memorial',
+    'archaeological_site',
+    'aquarium',
+    'zoo',
+    'theme_park',
+    'artwork',
+    'statue',
+    'fort',
+    'ruins',
+  ])
 
   const {
     position,
@@ -54,6 +75,11 @@ function App() {
     activePos?.longitude ?? null,
     !!activePos
   )
+
+  const visiblePlaces = places.filter((place) => {
+    if (mapZoom >= 13) return true
+    return MAJOR_CATEGORIES.has(place.category)
+  })
 
   const displayCity = geoCity || (activePos
     ? `${activePos.latitude.toFixed(4)}, ${activePos.longitude.toFixed(4)}`
@@ -72,6 +98,16 @@ function App() {
       setPlacesLoading(false)
     }
   }, [activePos])
+
+  const zoomIn = useCallback(() => {
+    const map = mapInstance.current
+    if (map) map.zoomIn()
+  }, [])
+
+  const zoomOut = useCallback(() => {
+    const map = mapInstance.current
+    if (map) map.zoomOut()
+  }, [])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -92,6 +128,10 @@ function App() {
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
 
+    map.on('zoomend', () => {
+      setMapZoom(map.getZoom())
+    })
+
     mapInstance.current = map
 
     return () => {
@@ -111,7 +151,12 @@ function App() {
     placeMarkerRefs.current.forEach((m) => map.removeLayer(m))
     placeMarkerRefs.current.clear()
 
-    places.forEach((place) => {
+    const visible = places.filter((place) => {
+      if (mapZoom >= 13) return true
+      return MAJOR_CATEGORIES.has(place.category)
+    })
+
+    visible.forEach((place) => {
       const marker = L.marker([place.latitude, place.longitude], {
         title: place.name,
         alt: place.name,
@@ -133,7 +178,7 @@ function App() {
       marker.addTo(map)
       placeMarkerRefs.current.set(place.id, marker)
     })
-  }, [mapInstance, places])
+  }, [mapInstance, places, mapZoom])
 
   useEffect(() => {
     renderPlaceMarkers()
@@ -285,6 +330,13 @@ function App() {
           <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
           <line x1="8" y1="14" x2="16" y2="14" />
         </svg>
+      </button>
+
+      <button className="zoom-btn zoom-in" onClick={zoomIn} aria-label="Увеличить">
+        +
+      </button>
+      <button className="zoom-btn zoom-out" onClick={zoomOut} aria-label="Уменьшить">
+        −
       </button>
 
       <div
