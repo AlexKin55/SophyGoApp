@@ -3,16 +3,41 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useGeolocation } from './geolocation/useGeolocation'
 import { useReverseGeocode } from './geolocation/useReverseGeocode'
+import { fetchNearbyPlaces } from './geolocation/useOverpassPlaces'
+import { Place } from './places/places'
+import { PlaceCard } from './components/PlaceCard'
 
 const MOSCOW_CENTER = [55.751244, 37.618423]
+
+function getCategoryColor(category: string): string {
+  const colors: Record<string, string> = {
+    памятник: '#dc2626',
+    архитектура: '#2563eb',
+    храм: '#7c3aed',
+    музей: '#059669',
+    театр: '#d97706',
+    cafe: '#d97706',
+    restaurant: '#d97706',
+    museum: '#059669',
+    theatre: '#d97706',
+    attraction: '#dc2626',
+    gallery: '#7c3aed',
+    viewpoint: '#059669',
+  }
+  return colors[category] || '#6b7280'
+}
 
 function App() {
   const mapRef = useRef<HTMLDivElement | null>(null)
   const mapInstance = useRef<L.Map | null>(null)
   const userMarkerRef = useRef<L.CircleMarker | null>(null)
   const accuracyCircleRef = useRef<L.Circle | null>(null)
+  const placeMarkerRefs = useRef<Map<string, L.Marker>>(new Map())
   const [isExpanded, setIsExpanded] = useState(true)
   const [isPicking, setIsPicking] = useState(false)
+  const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
+  const [places, setPlaces] = useState<Place[]>([])
+  const [placesLoading, setPlacesLoading] = useState(false)
 
   const {
     position,
@@ -24,7 +49,7 @@ function App() {
   } = useGeolocation()
 
   const activePos = isTestMode ? testPosition : position
-  const { city: geoCity, isLoading: geoLoading } = useReverseGeocode(
+  const { city: geoCity } = useReverseGeocode(
     activePos?.latitude ?? null,
     activePos?.longitude ?? null,
     !!activePos
@@ -33,6 +58,27 @@ function App() {
   const displayCity = geoCity || (activePos
     ? `${activePos.latitude.toFixed(4)}, ${activePos.longitude.toFixed(4)}`
     : 'Москва')
+
+  const loadPlaces = useCallback(async () => {
+    const pos = activePos
+    if (!pos) return
+    setPlacesLoading(true)
+    try {
+      const fetched = await fetchNearbyPlaces(pos.latitude, pos.longitude, 1000)
+      setPlaces(fetched)
+    } catch (err) {
+      console.error('Failed to load places:', err)
+    } finally {
+      setPlacesLoading(false)
+    }
+  }, [activePos])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadPlaces()
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [loadPlaces])
 
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return
@@ -49,12 +95,49 @@ function App() {
     mapInstance.current = map
 
     return () => {
+      placeMarkerRefs.current.forEach((m) => map.removeLayer(m))
+      placeMarkerRefs.current.clear()
       map.remove()
       mapInstance.current = null
       userMarkerRef.current = null
       accuracyCircleRef.current = null
     }
   }, [])
+
+  const renderPlaceMarkers = useCallback(() => {
+    const map = mapInstance.current
+    if (!map) return
+
+    placeMarkerRefs.current.forEach((m) => map.removeLayer(m))
+    placeMarkerRefs.current.clear()
+
+    places.forEach((place) => {
+      const marker = L.marker([place.latitude, place.longitude], {
+        title: place.name,
+        alt: place.name,
+        riseOnHover: true,
+      })
+      const color = getCategoryColor(place.category)
+      marker.setIcon(
+        L.divIcon({
+          className: 'place-marker',
+          html: `<div style="background:${color};width:28px;height:28px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:bold">${place.category.charAt(0).toUpperCase()}</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        })
+      )
+      marker.on('click', () => {
+        setSelectedPlace(place)
+        map.flyTo([place.latitude, place.longitude], 15)
+      })
+      marker.addTo(map)
+      placeMarkerRefs.current.set(place.id, marker)
+    })
+  }, [mapInstance, places])
+
+  useEffect(() => {
+    renderPlaceMarkers()
+  }, [renderPlaceMarkers])
 
   const updateUserMarker = useCallback(() => {
     const map = mapInstance.current
@@ -137,6 +220,10 @@ function App() {
     <div className="app">
       <div className="map" ref={mapRef} />
 
+      {selectedPlace && (
+        <PlaceCard place={selectedPlace} onClose={() => setSelectedPlace(null)} />
+      )}
+
       <button className="search" aria-label="Поиск">
         <svg
           width="20"
@@ -182,7 +269,7 @@ function App() {
       <button
         className="fab ai-guide"
         aria-label="Диалог с AI-гидом"
-        onClick={() => setAiChatOpen(true)}
+        onClick={() => setIsExpanded(true)}
       >
         <svg
           width="20"
@@ -228,6 +315,10 @@ function App() {
 
       {error && (
         <div className="geo-error">{error}</div>
+      )}
+
+      {placesLoading && (
+        <div className="places-loading">Загрузка достопримечательностей…</div>
       )}
     </div>
   )
