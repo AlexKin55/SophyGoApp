@@ -52,26 +52,44 @@ body,
 }
 
 .bottom-sheet.expanded {
-  height: auto;
-  max-height: 55vh;
+  height: 33vh;
+  max-height: 33vh;
   opacity: 1;
   cursor: default;
 }
 
 .bottom-sheet.collapsed {
-  height: 0;
-  padding: 0;
-  overflow: hidden;
-  opacity: 0;
-  cursor: default;
+  height: 56px;
+  padding: 0 20px;
+  opacity: 1;
+  cursor: pointer;
 }
 
-.bottom-sheet h1 {
+.bottom-sheet.collapsed .sheet-content {
+  display: none;
+  pointer-events: none;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  cursor: pointer;
+}
+
+.sheet-header h1 {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
   color: #111;
   text-align: center;
+}
+
+.sheet-content {
+  padding-top: 12px;
+  overflow-y: auto;
+  height: calc(100% - 56px);
 }
 
 .search {

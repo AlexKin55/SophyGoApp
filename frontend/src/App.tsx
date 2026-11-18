@@ -212,7 +212,29 @@ function App() {
           }
         }}
       >
-        <h1>{displayCity}</h1>
+        <div className="sheet-header" onClick={() => setIsExpanded((p) => !p)}>
+          <h1>{displayCity}</h1>
+        </div>
+
+        <div className="sheet-content">
+          {isExpanded && (
+            <>
+              <div className="tabs">
+                <button className="tab active">Места</button>
+                <button className="tab">Районы</button>
+                <button className="tab">Маршруты</button>
+              </div>
+
+              <div className="categories">
+                <button className="chip active">Еда</button>
+                <button className="chip">Напитки</button>
+                <button className="chip">Кафе</button>
+                <button className="chip">Магазины</button>
+                <button className="chip">Культура</button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {!isSupported && (
