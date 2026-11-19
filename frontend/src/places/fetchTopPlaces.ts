@@ -20,6 +20,16 @@ interface PageImage {
   image?: string
 }
 
+interface NominatimPlace {
+  osm_type?: string
+  osm_id?: number
+  lat: string
+  lon: string
+  category?: string
+  type?: string
+  name?: string
+}
+
 interface CategoryRule {
   category: string
   keywords: string[]
@@ -37,6 +47,16 @@ const CACHE_TTL_MS = 2 * 60_000
 const CACHE_LIMIT = 50
 const MAX_CONCURRENT_REQUESTS = 2
 const RETRY_DELAY_MS = 1_000
+
+/** Сколько мест резервируем под парки/скверы из OSM. */
+const OSM_RESERVED = 10
+const OSM_WAIT_MS = 4_000
+const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
+const NOMINATIM_TIMEOUT_MS = 4_000
+const NOMINATIM_DELAY_MS = 1_100
+const NOMINATIM_QUERIES = ['парк', 'сквер']
+
+let lastNominatimRequestAt = 0
 
 interface CacheEntry {
   at: number
@@ -296,12 +316,13 @@ async function fetchJson<T>(
   url: string,
   accept: string,
   signal?: AbortSignal,
-  body?: URLSearchParams
+  body?: URLSearchParams,
+  timeoutMs = REQUEST_TIMEOUT_MS
 ): Promise<T> {
   const controller = new AbortController()
   const abortFromCaller = () => controller.abort()
   signal?.addEventListener('abort', abortFromCaller, { once: true })
-  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
 
   const request = () =>
     fetch(url, {
@@ -507,12 +528,135 @@ async function fetchImages(
   return result
 }
 
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+function nominatimCategory(item: NominatimPlace): string | null {
+  if (item.category === 'leisure') {
+    if (item.type === 'garden') return 'garden'
+    if (item.type === 'nature_reserve') return 'nature_reserve'
+    if (item.type === 'park') return 'park'
+  }
+
+  if (item.category === 'landuse' && item.type === 'forest') return 'park'
+  if (item.category === 'place' && item.type === 'square') return 'attraction'
+  return null
+}
+
+/**
+ * Дополняет Wikipedia объектами из OSM через Nominatim: маленькие парки,
+ * скверы и лесопарки часто не имеют статей, поэтому GeoSearch их не находит.
+ * Nominatim разрешает не больше одного запроса в секунду — соблюдаем паузу.
+ */
+async function fetchOsmParks(
+  bounds: MapBounds,
+  signal?: AbortSignal
+): Promise<Place[]> {
+  const byName = new Map<string, { place: Place; score: number }>()
+  let lastError: unknown = null
+
+  for (const query of NOMINATIM_QUERIES) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+
+    const wait = NOMINATIM_DELAY_MS - (Date.now() - lastNominatimRequestAt)
+    if (wait > 0) await delay(wait)
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    lastNominatimRequestAt = Date.now()
+
+    const url = new URL(NOMINATIM_URL)
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('q', query)
+    url.searchParams.set(
+      'viewbox',
+      `${bounds.west},${bounds.north},${bounds.east},${bounds.south}`
+    )
+    url.searchParams.set('bounded', '1')
+    url.searchParams.set('limit', '50')
+    url.searchParams.set('accept-language', 'ru')
+
+    try {
+      const data = await fetchJson<NominatimPlace[]>(
+        url.toString(),
+        'application/json',
+        signal,
+        undefined,
+        NOMINATIM_TIMEOUT_MS
+      )
+
+      for (const item of data) {
+        const name = item.name?.trim()
+        const category = nominatimCategory(item)
+        const latitude = Number(item.lat)
+        const longitude = Number(item.lon)
+
+        if (
+          !name ||
+          !category ||
+          !Number.isFinite(latitude) ||
+          !Number.isFinite(longitude)
+        ) {
+          continue
+        }
+
+        const score =
+          (CATEGORY_WEIGHTS[category] ?? 12) +
+          (name.toLowerCase().includes('парк') ? 2 : 0)
+        const key = normalizeName(name)
+        const existing = byName.get(key)
+
+        if (!existing || score > existing.score) {
+          byName.set(key, {
+            place: {
+              id: `osm/${item.osm_type ?? 'x'}/${item.osm_id ?? key}`,
+              name,
+              latitude,
+              longitude,
+              category,
+              images: [],
+            },
+            score,
+          })
+        }
+      }
+    } catch (err) {
+      if (signal?.aborted) throw err
+      lastError = err
+    }
+  }
+
+  if (byName.size === 0 && lastError) {
+    console.warn('Nominatim parks unavailable:', lastError)
+  }
+
+  return [...byName.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_RESULTS)
+    .map((entry) => entry.place)
+}
+
+function mergePlaces(wikiPlaces: Place[], osmPlaces: Place[]): Place[] {
+  const names = new Set(wikiPlaces.map((place) => normalizeName(place.name)))
+
+  const extra = osmPlaces
+    .filter((place) => {
+      const key = normalizeName(place.name)
+      if (names.has(key)) return false
+      names.add(key)
+      return true
+    })
+    .slice(0, OSM_RESERVED)
+
+  return [...wikiPlaces.slice(0, MAX_RESULTS - extra.length), ...extra]
+}
+
 /**
  * Возвращает MAX_RESULTS самых значимых объектов в границах карты.
  *
- * Wikipedia GeoSearch используется как бесплатный геоиндекс без API-ключа:
- * bbox делится на ячейки, результаты фильтруются по типу и категориям статей,
- * а внутри категорий сортируются по размеру статьи.
+ * Wikipedia GeoSearch — бесплатный геоиндекс без API-ключа: bbox делится
+ * на ячейки, результаты фильтруются по типу и категориям статей.
+ * OSM/Nominatim дополняет выборку небольшими парками, скверами и площадями,
+ * которых обычно нет в Wikipedia.
  */
 export async function fetchTopPlaces(
   bounds: MapBounds,
@@ -538,6 +682,7 @@ async function loadTopPlaces(
   bounds: MapBounds,
   signal?: AbortSignal
 ): Promise<Place[]> {
+  const osmPromise = fetchOsmParks(bounds, signal).catch(() => [])
   const cells = splitBounds(bounds)
   const results: Array<{ pages?: GeoPage[]; error?: unknown }> = []
 
@@ -618,7 +763,7 @@ async function loadTopPlaces(
     signal
   ).catch(() => new Map<number, PageImage>())
 
-  return selected.map(({ page, category }) => {
+  const wikiPlaces = selected.map(({ page, category }) => {
     const info = images.get(page.pageid)
     return {
       id: `page/${page.pageid}`,
@@ -629,4 +774,11 @@ async function loadTopPlaces(
       images: info?.image ? [info.image] : [],
     }
   })
+
+  // Не ждём Overpass дольше 5 секунд: если он недоступен, показываем Wikipedia.
+  const osmParks = await Promise.race([
+    osmPromise,
+    delay(OSM_WAIT_MS).then(() => [] as Place[]),
+  ])
+  return mergePlaces(wikiPlaces, osmParks)
 }
