@@ -1,3 +1,5 @@
+import { env } from '../config/env'
+import { logger } from '../config/logger'
 import type { Place } from './places'
 
 export interface MapBounds {
@@ -35,26 +37,26 @@ interface CategoryRule {
   keywords: string[]
 }
 
-const WIKIPEDIA_API = 'https://ru.wikipedia.org/w/api.php'
+const WIKIPEDIA_API = env.places.wikipediaApiUrl
 
-const MAX_RESULTS = 30
-const GEOSEARCH_LIMIT = 500
-const CATEGORY_CANDIDATES = 100
-const TITLES_PER_REQUEST = 50
-const IMAGES_BATCH = 20
-const REQUEST_TIMEOUT_MS = 30_000
-const CACHE_TTL_MS = 2 * 60_000
-const CACHE_LIMIT = 50
-const MAX_CONCURRENT_REQUESTS = 2
-const RETRY_DELAY_MS = 1_000
+const MAX_RESULTS = env.places.maxResults
+const GEOSEARCH_LIMIT = env.places.geosearchLimit
+const CATEGORY_CANDIDATES = env.places.categoryCandidates
+const TITLES_PER_REQUEST = env.places.titlesPerRequest
+const IMAGES_BATCH = env.places.imagesBatch
+const REQUEST_TIMEOUT_MS = env.places.requestTimeoutMs
+const CACHE_TTL_MS = env.places.cacheTtlMs
+const CACHE_LIMIT = env.places.cacheLimit
+const MAX_CONCURRENT_REQUESTS = env.places.maxConcurrentRequests
+const RETRY_DELAY_MS = env.places.retryDelayMs
 
 /** Сколько мест резервируем под парки/скверы из OSM. */
-const OSM_RESERVED = 10
-const OSM_WAIT_MS = 4_000
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
-const NOMINATIM_TIMEOUT_MS = 4_000
-const NOMINATIM_DELAY_MS = 1_100
-const NOMINATIM_QUERIES = ['парк', 'сквер']
+const OSM_RESERVED = env.places.osmReserved
+const OSM_WAIT_MS = env.places.osmWaitMs
+const NOMINATIM_URL = env.places.nominatimUrl
+const NOMINATIM_TIMEOUT_MS = env.places.nominatimTimeoutMs
+const NOMINATIM_DELAY_MS = env.places.nominatimDelayMs
+const NOMINATIM_QUERIES = env.places.nominatimQueries
 
 let lastNominatimRequestAt = 0
 
@@ -96,11 +98,11 @@ function writeCache(bounds: MapBounds, places: Place[]): void {
  * Ограничение области запроса: на очень мелком масштабе bbox может покрывать
  * полмира. В этом случае берём центральную часть видимой области.
  */
-const MAX_LAT_SPAN = 3
-const MAX_LON_SPAN = 6
+const MAX_LAT_SPAN = env.places.maxLatSpan
+const MAX_LON_SPAN = env.places.maxLonSpan
 
 /** На сколько ячеек делим bbox: GeoSearch отдаёт не больше 500 ближайших. */
-const GRID_SIZE = 2
+const GRID_SIZE = env.places.gridSize
 
 const EXCLUDED_GEO_TYPES = new Set([
   'city',
@@ -139,6 +141,35 @@ const EXCLUDED_CATEGORY_KEYWORDS = [
 
 /** Порядок важен: более специфичные категории проверяются раньше. */
 const CATEGORY_RULES: CategoryRule[] = [
+  {
+    category: 'military',
+    keywords: [
+      'военные музеи',
+      'вооружённые силы',
+      'вооруженные силы',
+      'военная история',
+      'военная техника',
+      'военные',
+      'войны',
+      'война',
+      'сражения',
+      'битвы',
+      'боевые действия',
+      'оборонительные сооружения',
+      'обороны',
+      'оборона',
+      'армия',
+      'армии',
+      'флот',
+      'авиация',
+      'казармы',
+      'штабы',
+      'бункеры',
+      'воинские захоронения',
+      'братские могилы',
+      'вечный огонь',
+    ],
+  },
   { category: 'planetarium', keywords: ['планетарии', 'планетарий'] },
   {
     category: 'arts_centre',
@@ -207,10 +238,25 @@ const CATEGORY_RULES: CategoryRule[] = [
   { category: 'monument', keywords: ['памятники', 'монументы', 'скульптуры'] },
   {
     category: 'fort',
-    keywords: ['крепости', 'кремли', 'башни', 'оборонительные сооружения'],
+    keywords: ['крепости', 'кремли', 'башни'],
   },
   { category: 'city_gate', keywords: ['городские ворота'] },
   { category: 'palace', keywords: ['дворцы', 'усадьбы', 'резиденции'] },
+  {
+    category: 'historic_building',
+    keywords: [
+      'памятники архитектуры',
+      'архитектурные памятники',
+      'объекты культурного наследия',
+      'памятники истории и культуры',
+      'исторические здания',
+      'исторические дома',
+      'исторические особняки',
+      'особняки',
+      'доходные дома',
+      'здания и сооружения',
+    ],
+  },
   {
     category: 'attraction',
     keywords: [
@@ -218,7 +264,6 @@ const CATEGORY_RULES: CategoryRule[] = [
       'площади',
       'мосты',
       'набережные',
-      'объекты культурного наследия',
       'всемирное наследие',
       'пешеходные улицы',
     ],
@@ -227,6 +272,8 @@ const CATEGORY_RULES: CategoryRule[] = [
 
 const CATEGORY_WEIGHTS: Record<string, number> = {
   attraction: 30,
+  military: 30,
+  historic_building: 28,
   museum: 32,
   gallery: 30,
   arts_centre: 28,
@@ -626,7 +673,7 @@ async function fetchOsmParks(
   }
 
   if (byName.size === 0 && lastError) {
-    console.warn('Nominatim parks unavailable:', lastError)
+    logger.warn('Nominatim parks unavailable', { error: String(lastError) })
   }
 
   return [...byName.values()]

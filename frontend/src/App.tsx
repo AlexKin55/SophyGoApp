@@ -5,13 +5,18 @@ import { useGeolocation } from './geolocation/useGeolocation'
 import { useReverseGeocode } from './geolocation/useReverseGeocode'
 import { fetchTopPlaces } from './places/fetchTopPlaces'
 import type { Place } from './places/places'
-import { PlaceCard } from './components/PlaceCard'
+import { GuideDialog } from './components/GuideDialog'
+import { useGuideSession } from './guide/useGuideSession'
+import { env } from './config/env'
+import { logger } from './config/logger'
 
-const MOSCOW_CENTER: L.LatLngTuple = [55.751244, 37.618423]
+const MOSCOW_CENTER: L.LatLngTuple = env.map.center
 
 function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
-    attraction: '#dc2626',
+    military: '#dc2626',
+    historic_building: '#92400e',
+    attraction: '#0ea5e9',
     artwork: '#db2777',
     museum: '#059669',
     gallery: '#7c3aed',
@@ -46,7 +51,9 @@ function getCategoryColor(category: string): string {
 
 function getCategoryEmoji(category: string): string {
   const emojis: Record<string, string> = {
-    attraction: '⭐',
+    military: '⭐',
+    historic_building: '🏠',
+    attraction: '🧭',
     artwork: '🎨',
     museum: '🏛️',
     gallery: '🖼️',
@@ -93,27 +100,41 @@ function App() {
   const [placesLoading, setPlacesLoading] = useState(false)
   const [placesError, setPlacesError] = useState<string | null>(null)
 
+  const guide = useGuideSession()
+  const handleGuidePlaceOpen = guide.handlePlaceOpen
   const { position, error, isSupported } = useGeolocation()
 
   // Округляем до ~100 м: не дёргаем Nominatim на каждый тик GPS.
-  const geocodeLat = position ? Math.round(position.latitude * 1000) / 1000 : null
-  const geocodeLon = position ? Math.round(position.longitude * 1000) / 1000 : null
+  const geocodeLat = position ? Math.round(position.latitude * env.geolocation.roundFactor) / env.geolocation.roundFactor : null
+  const geocodeLon = position ? Math.round(position.longitude * env.geolocation.roundFactor) / env.geolocation.roundFactor : null
   const geoCity = useReverseGeocode(geocodeLat, geocodeLon, Boolean(position))
 
-  const displayCity =
-    geoCity ||
-    (position
-      ? `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`
-      : 'Москва')
+  // В панели показываем название места, а не координаты.
+  const displayCity = geoCity || (position ? 'Ваше местоположение' : 'Москва')
 
-  const isPanelOpen = Boolean(selectedPlace) || isExpanded
+  const guideActive = guide.listening || guide.status === 'speaking'
+  const guideBusy = guide.status === 'connecting'
 
-  const handleTogglePanel = () => {
-    if (selectedPlace) {
+  const handleToggleTalk = () => {
+    if (guideActive) {
+      void guide.stop()
+      if (guide.listening) {
+        void guide.toggleListening()
+      }
+      return
+    }
+    void guide.toggleListening()
+  }
+
+  const isDrawerOpen = Boolean(selectedPlace) || isExpanded
+
+  const handleToggleDrawer = () => {
+    if (isDrawerOpen) {
+      setIsExpanded(false)
       setSelectedPlace(null)
       return
     }
-    setIsExpanded((prev) => !prev)
+    setIsExpanded(true)
   }
 
   /**
@@ -153,7 +174,7 @@ function App() {
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted) return
-          console.error('Failed to load places:', err)
+          logger.error('не удалось загрузить объекты', { error: String(err) })
           setPlacesError('Не удалось загрузить объекты. Подвиньте карту, чтобы повторить.')
         })
         .finally(() => {
@@ -173,17 +194,22 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!mapRef.current || mapInstance.current) return
+    const container = mapRef.current
+    if (!container || mapInstance.current) return
 
     const markers = placeMarkerRefs.current
-    const map = L.map(mapRef.current, {
+    const map = L.map(container, {
       center: MOSCOW_CENTER,
-      zoom: 13,
+      zoom: env.map.zoom,
       zoomControl: false,
       attributionControl: false,
     })
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+    L.tileLayer(env.map.tileUrl).addTo(map)
+
+    // Карта занимает треть экрана и меняет размер при повороте устройства.
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize())
+    resizeObserver.observe(container)
 
     // Пока карту двигают или масштабируют — никаких запросов.
     const cancelPendingLoad = () => {
@@ -195,8 +221,8 @@ function App() {
       setPlacesLoading(false)
     }
 
-    // После остановки ждём 500 мс и только затем запрашиваем объекты.
-    const handleMoveEnd = () => loadPlaces(500)
+    // После остановки карты ждём moveDebounceMs и только затем запрашиваем объекты.
+    const handleMoveEnd = () => loadPlaces(env.map.moveDebounceMs)
     map.on('movestart', cancelPendingLoad)
     map.on('zoomstart', cancelPendingLoad)
     map.on('moveend', handleMoveEnd)
@@ -205,6 +231,7 @@ function App() {
     loadPlaces(0)
 
     return () => {
+      resizeObserver.disconnect()
       map.off('movestart', cancelPendingLoad)
       map.off('zoomstart', cancelPendingLoad)
       map.off('moveend', handleMoveEnd)
@@ -251,13 +278,16 @@ function App() {
       })
       marker.on('click', () => {
         setSelectedPlace(place)
+        // Сообщаем backend, что пользователь открыл исторический объект.
+        // Сервис передаёт объект в голосовую сессию Гида.
+        void handleGuidePlaceOpen(place)
         // Сохраняем текущий масштаб — только центрируем карту на объекте.
         map.panTo([place.latitude, place.longitude])
       })
       marker.addTo(map)
       placeMarkerRefs.current.set(place.id, marker)
     })
-  }, [places])
+  }, [places, handleGuidePlaceOpen])
 
   useEffect(() => {
     renderPlaceMarkers()
@@ -301,9 +331,8 @@ function App() {
 
   return (
     <div className="app">
-      <div className="map" ref={mapRef} />
-
-      {selectedPlace && <PlaceCard place={selectedPlace} />}
+      <div className="map-pane">
+        <div className="map" ref={mapRef} />
 
       <button className="search" aria-label="Поиск">
         <svg
@@ -321,53 +350,6 @@ function App() {
         </svg>
       </button>
 
-      <button
-        className="fab toggle-sheet"
-        aria-label={isPanelOpen ? 'Свернуть панель' : 'Развернуть панель'}
-        onClick={handleTogglePanel}
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          {isPanelOpen ? (
-            <>
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </>
-          ) : (
-            <polyline points="16 6 20 6 20 10" />
-          )}
-        </svg>
-      </button>
-
-      <button
-        className="fab ai-guide"
-        aria-label="Диалог с AI-гидом"
-        onClick={() => setIsExpanded(true)}
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-          <line x1="8" y1="14" x2="16" y2="14" />
-        </svg>
-      </button>
-
       <button className="zoom-btn zoom-in" onClick={zoomIn} aria-label="Увеличить">
         +
       </button>
@@ -375,34 +357,10 @@ function App() {
         −
       </button>
 
-      <div
-        className={`bottom-sheet ${isExpanded ? 'expanded' : 'collapsed'}`}
-        role="button"
-        tabIndex={0}
-        aria-label={isExpanded ? 'Свернуть панель' : 'Развернуть панель'}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            setIsExpanded((p) => !p)
-          }
-        }}
-      >
-        <div className="sheet-header" onClick={() => setIsExpanded((p) => !p)}>
-          <h1>{selectedPlace ? selectedPlace.name : displayCity}</h1>
-        </div>
-
-        <div className="sheet-content">
-        </div>
-      </div>
-
       {!isSupported && (
         <div className="geo-error">
           Геолокация не поддерживается браузером
         </div>
-      )}
-
-      {error && (
-        <div className="geo-error">{error}</div>
       )}
 
       {placesLoading && (
@@ -412,6 +370,60 @@ function App() {
       {placesError && !placesLoading && (
         <div className="places-loading places-error">{placesError}</div>
       )}
+      </div>
+
+      <div className={`drawer ${isDrawerOpen ? 'open' : 'closed'}`}>
+        <div
+          className="drawer-header"
+          role="button"
+          tabIndex={0}
+          aria-label={isDrawerOpen ? 'Свернуть панель' : 'Развернуть панель'}
+          onClick={handleToggleDrawer}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleToggleDrawer()
+            }
+          }}
+        >
+          <span className="drawer-handle" aria-hidden="true" />
+          <h1>{selectedPlace ? selectedPlace.name : displayCity}</h1>
+        </div>
+
+        <div className="drawer-content">
+          <div className="photo-pane">
+        {selectedPlace ? (
+          <>
+            {selectedPlace.images?.length ? (
+              <img src={selectedPlace.images[0]} alt={selectedPlace.name} />
+            ) : (
+              <div className="photo-pane-placeholder" aria-hidden="true">
+                📍
+              </div>
+            )}
+            <div className="photo-pane-title">{selectedPlace.name}</div>
+          </>
+        ) : (
+          <div className="photo-pane-placeholder">
+            <span aria-hidden="true">📍</span>
+            <p>{displayCity}</p>
+          </div>
+        )}
+          </div>
+
+          <div className="dialog-pane">
+            <GuideDialog
+              active={guideActive}
+              busy={guideBusy}
+              error={guide.error}
+              geoError={error}
+              transcript={guide.transcript}
+              userTranscript={guide.userTranscript}
+              onToggleTalk={handleToggleTalk}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

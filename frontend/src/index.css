@@ -18,13 +18,193 @@ body,
   background: #fff;
 }
 
+/* Карта всегда на весь экран. */
+.map-pane {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
 .map {
-  flex: 1 1 100%;
   width: 100%;
+  height: 100%;
   min-height: 0;
   touch-action: none;
   position: relative;
   z-index: 1;
+}
+
+/* Выдвижная панель поверх карты. */
+.drawer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  background: #fff;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: height 0.3s ease;
+}
+
+.drawer.closed {
+  height: 64px;
+}
+
+.drawer.closed .drawer-content {
+  display: none;
+}
+
+.drawer.open {
+  height: 50vh;
+  height: 50dvh;
+  max-height: none;
+}
+
+.drawer-header {
+  position: relative;
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 20px 0;
+  cursor: pointer;
+}
+
+.drawer-handle {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: #d1d5db;
+  transform: translateX(-50%);
+}
+
+.drawer-header h1 {
+  margin: 0;
+  max-width: 100%;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111;
+  text-align: center;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Портрет: карта 1/2, в панели фото и чат по 1/4 экрана. */
+.photo-pane {
+  position: relative;
+  flex: 1 1 50%;
+  min-height: 0;
+  overflow: hidden;
+  background: #f3f4f6;
+}
+
+.photo-pane img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-pane-placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #6b7280;
+  font-size: 13px;
+  background: #f3f4f6;
+}
+
+.photo-pane-placeholder span {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.photo-pane-placeholder p {
+  margin: 0;
+}
+
+.photo-pane-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 16px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+}
+
+/* Чат с Гидом внутри панели. */
+.dialog-pane {
+  flex: 1 1 50%;
+  min-height: 0;
+  padding: 12px 16px;
+  background: #fff;
+  overflow: hidden;
+}
+
+/*
+ * Ландшафт: панель выше, внутри фото слева, чат справа.
+ */
+@media (orientation: landscape) {
+  /* Ландшафт: карта 3/4, панель 1/4 экрана. */
+  .drawer.open {
+    height: 25vh;
+    height: 25dvh;
+    max-height: none;
+  }
+
+  .drawer-header {
+    flex-basis: 32px;
+    padding: 10px 16px 0;
+  }
+
+  .drawer-header h1 {
+    font-size: 14px;
+  }
+
+  .drawer-handle {
+    top: 4px;
+  }
+
+  .drawer-content {
+    flex-direction: row;
+  }
+
+  .photo-pane {
+    flex: 0 0 28%;
+  }
+
+  .dialog-pane {
+    flex: 1 1 auto;
+    padding: 8px 12px;
+  }
+
+  .guide-talk {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
 }
 
 .leaflet-container {
@@ -52,10 +232,10 @@ body,
 }
 
 .bottom-sheet.expanded {
-  height: 33vh;
-  height: 33dvh;
-  max-height: 33vh;
-  max-height: 33dvh;
+  height: 45vh;
+  height: 45dvh;
+  max-height: 45vh;
+  max-height: 45dvh;
   opacity: 1;
   cursor: default;
 }
@@ -90,8 +270,164 @@ body,
 
 .sheet-content {
   padding-top: 12px;
-  overflow-y: auto;
+  overflow: hidden;
   height: calc(100% - 56px);
+}
+
+.guide-dialog {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.guide-dialog-body {
+  display: flex;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Слева — фото выбранного объекта вместо фото Гида. */
+.guide-dialog-photo {
+  flex: 0 0 22%;
+  max-width: 140px;
+  min-width: 72px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f3f4f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.guide-dialog-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.guide-dialog-photo-placeholder {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.guide-dialog-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.guide-dialog-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* «Поговорим» / «Помолчим» — управление общением с Гидом. */
+.guide-talk {
+  flex: 0 0 auto;
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  background: #f97316;
+  color: #fff;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guide-talk-active {
+  background: #dc2626;
+}
+
+.guide-talk:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.guide-dialog-messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 8px;
+  padding-right: 2px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guide-message {
+  border-radius: 12px;
+  padding: 8px 10px;
+  max-width: 100%;
+}
+
+.guide-message p {
+  margin: 2px 0 0;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.guide-message-author {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.guide-message-user {
+  align-self: flex-end;
+  background: #fff7ed;
+  border-bottom-right-radius: 4px;
+}
+
+.guide-message-guide {
+  align-self: flex-start;
+  background: #f1f5f9;
+  border-bottom-left-radius: 4px;
+}
+
+.guide-message-error {
+  align-self: stretch;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.guide-message-error p {
+  margin: 0;
+  color: #b91c1c;
+  font-weight: 500;
+}
+
+.guide-message-error-icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.guide-dialog-empty {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .search {
@@ -145,6 +481,119 @@ body,
   top: 124px;
 }
 
+.ai-guide.active {
+  background: #f97316;
+  color: #fff;
+}
+
+.guide-panel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 68px;
+  z-index: 70;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  color: #111;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.guide-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+
+.guide-dot-connecting {
+  background: #f59e0b;
+  animation: guide-pulse 1s ease-in-out infinite;
+}
+
+.guide-dot-ready,
+.guide-dot-listening {
+  background: #16a34a;
+}
+
+.guide-dot-speaking {
+  background: #2563eb;
+  animation: guide-pulse 1s ease-in-out infinite;
+}
+
+.guide-dot-error {
+  background: #dc2626;
+}
+
+.guide-status {
+  font-weight: 600;
+}
+
+.guide-stop {
+  margin-left: auto;
+  border: none;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guide-user-text {
+  margin: 8px 0 0;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.guide-transcript {
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
+
+
+.guide-actions {
+  margin-top: 10px;
+}
+
+.guide-mic {
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  background: #f97316;
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guide-mic:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@keyframes guide-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .zoom-btn {
   position: absolute;
   right: 12px;
@@ -161,7 +610,8 @@ body,
   font-size: 20px;
   font-weight: bold;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  z-index: 60;
+  /* Ниже панели (z-index: 50), чтобы в ландшафте она не перекрывала чат. */
+  z-index: 40;
 }
 
 .zoom-btn:hover {

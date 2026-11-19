@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { env } from '../config/env'
 
 export interface GeoPosition {
   latitude: number
@@ -50,9 +51,9 @@ export function useGeolocation(): UseGeolocationReturn {
     }
 
     const watchId = navigator.geolocation.watchPosition(success, failure, {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 5000,
+      enableHighAccuracy: env.geolocation.enableHighAccuracy,
+      timeout: env.geolocation.timeoutMs,
+      maximumAge: env.geolocation.maximumAgeMs,
     })
 
     return () => navigator.geolocation.clearWatch(watchId)

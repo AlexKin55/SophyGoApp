@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
+import { env } from '../config/env'
 
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse'
-const DEBOUNCE_MS = 400
+const NOMINATIM_URL = env.places.nominatimUrl.replace(/\/search\/?$/, '/reverse')
+const DEBOUNCE_MS = env.reverseGeocode.debounceMs
 
 function buildParams(lat: number, lon: number): string {
   const url = new URL(NOMINATIM_URL)
   url.searchParams.set('format', 'jsonv2')
   url.searchParams.set('lat', String(lat))
   url.searchParams.set('lon', String(lon))
-  url.searchParams.set('zoom', '10')
+  url.searchParams.set('zoom', String(env.reverseGeocode.zoom))
   url.searchParams.set('addressdetails', '1')
   return url.toString()
 }
@@ -32,7 +33,7 @@ export function useReverseGeocode(
       try {
         const response = await fetch(buildParams(latitude, longitude), {
           signal: controller.signal,
-          headers: { 'Accept-Language': 'ru' },
+          headers: { 'Accept-Language': env.reverseGeocode.language },
         })
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -54,8 +55,11 @@ export function useReverseGeocode(
       }
     }, DEBOUNCE_MS)
 
+    const requestTimeout = window.setTimeout(() => controller.abort(), env.reverseGeocode.timeoutMs)
+
     return () => {
       window.clearTimeout(timer)
+      window.clearTimeout(requestTimeout)
       controller.abort()
     }
   }, [latitude, longitude, enabled])
