@@ -1,14 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-
-export interface ReverseGeocodeResult {
-  city: string | null
-  isLoading: boolean
-  error: string | null
-}
+import { useEffect, useState } from 'react'
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse'
+const DEBOUNCE_MS = 400
 
-function buildParams(lat: number, lon: number) {
+function buildParams(lat: number, lon: number): string {
   const url = new URL(NOMINATIM_URL)
   url.searchParams.set('format', 'jsonv2')
   url.searchParams.set('lat', String(lat))
@@ -18,72 +13,53 @@ function buildParams(lat: number, lon: number) {
   return url.toString()
 }
 
+/**
+ * Возвращает название города по координатам или null, если координат нет.
+ */
 export function useReverseGeocode(
   latitude: number | null,
   longitude: number | null,
-  enabled: boolean = true
-): ReverseGeocodeResult {
-  const [result, setResult] = useState<ReverseGeocodeResult>({
-    city: null,
-    isLoading: false,
-    error: null,
-  })
-  const abortRef = useRef<AbortController | null>(null)
-
-  const fetchCity = useCallback(
-    async (lat: number, lon: number, signal: AbortSignal) => {
-      setResult((prev) => ({ ...prev, isLoading: true, error: null }))
-      try {
-        const response = await fetch(buildParams(lat, lon), {
-          signal,
-          headers: {
-            'Accept-Language': 'ru',
-            'User-Agent': 'SophyGo/1.0 (development)',
-          },
-        })
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const data = await response.json()
-        const address = data.address || {}
-        const city =
-          address.city ||
-          address.town ||
-          address.village ||
-          address.municipality ||
-          null
-        setResult({ city, isLoading: false, error: null })
-      } catch (err) {
-        if (signal.aborted) return
-        setResult({
-          city: null,
-          isLoading: false,
-          error: err instanceof Error ? err.message : 'Ошибка определения города',
-        })
-      }
-    },
-    []
-  )
+  enabled = true
+): string | null {
+  const [city, setCity] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!enabled || latitude == null || longitude == null) {
-      setResult({ city: null, isLoading: false, error: null })
-      return
-    }
+    if (!enabled || latitude == null || longitude == null) return
 
-    if (abortRef.current) {
-      abortRef.current.abort()
-    }
     const controller = new AbortController()
-    abortRef.current = controller
 
-    const timer = setTimeout(() => {
-      fetchCity(latitude, longitude, controller.signal)
-    }, 400)
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(buildParams(latitude, longitude), {
+          signal: controller.signal,
+          headers: { 'Accept-Language': 'ru' },
+        })
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+        const data = await response.json()
+        const address = data.address ?? {}
+
+        if (!controller.signal.aborted) {
+          setCity(
+            address.city ||
+              address.town ||
+              address.village ||
+              address.municipality ||
+              null
+          )
+        }
+      } catch {
+        if (!controller.signal.aborted) setCity(null)
+      }
+    }, DEBOUNCE_MS)
 
     return () => {
-      clearTimeout(timer)
+      window.clearTimeout(timer)
       controller.abort()
     }
-  }, [latitude, longitude, enabled, fetchCity])
+  }, [latitude, longitude, enabled])
 
-  return result
+  if (!enabled || latitude == null || longitude == null) return null
+  return city
 }

@@ -3,28 +3,80 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useGeolocation } from './geolocation/useGeolocation'
 import { useReverseGeocode } from './geolocation/useReverseGeocode'
-import { fetchNearbyPlaces } from './geolocation/useOverpassPlaces'
-import { Place } from './places/places'
+import { fetchTopPlaces } from './places/fetchTopPlaces'
+import type { Place } from './places/places'
 import { PlaceCard } from './components/PlaceCard'
 
-const MOSCOW_CENTER = [55.751244, 37.618423]
+const MOSCOW_CENTER: L.LatLngTuple = [55.751244, 37.618423]
 
 function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
-    памятник: '#dc2626',
-    архитектура: '#2563eb',
-    храм: '#7c3aed',
-    музей: '#059669',
-    театр: '#d97706',
-    cafe: '#d97706',
-    restaurant: '#d97706',
-    museum: '#059669',
-    theatre: '#d97706',
     attraction: '#dc2626',
+    artwork: '#db2777',
+    museum: '#059669',
     gallery: '#7c3aed',
-    viewpoint: '#059669',
+    theatre: '#d97706',
+    arts_centre: '#7c3aed',
+    planetarium: '#7c3aed',
+    library: '#b45309',
+    park: '#16a34a',
+    alley: '#16a34a',
+    garden: '#22c55e',
+    nature_reserve: '#15803d',
+    zoo: '#16a34a',
+    aquarium: '#0891b2',
+    theme_park: '#16a34a',
+    viewpoint: '#0891b2',
+    castle: '#b91c1c',
+    fort: '#b91c1c',
+    palace: '#b91c1c',
+    monument: '#dc2626',
+    memorial: '#dc2626',
+    ruins: '#a16207',
+    archaeological_site: '#a16207',
+    city_gate: '#b91c1c',
+    church: '#7c3aed',
+    cathedral: '#7c3aed',
+    monastery: '#7c3aed',
+    mosque: '#7c3aed',
+    synagogue: '#7c3aed',
   }
   return colors[category] || '#6b7280'
+}
+
+function getCategoryEmoji(category: string): string {
+  const emojis: Record<string, string> = {
+    attraction: '⭐',
+    artwork: '🎨',
+    museum: '🏛️',
+    gallery: '🖼️',
+    theatre: '🎭',
+    arts_centre: '🎨',
+    planetarium: '🪐',
+    library: '📚',
+    park: '🌳',
+    alley: '🌳',
+    garden: '🌿',
+    nature_reserve: '🌲',
+    zoo: '🦁',
+    aquarium: '🐠',
+    theme_park: '🎢',
+    viewpoint: '👀',
+    castle: '🏰',
+    fort: '🏰',
+    palace: '🏰',
+    monument: '🗿',
+    memorial: '🕯️',
+    ruins: '🏚️',
+    archaeological_site: '🏺',
+    city_gate: '🏛️',
+    church: '⛪',
+    cathedral: '⛪',
+    monastery: '⛪',
+    mosque: '🕌',
+    synagogue: '🕍',
+  }
+  return emojis[category] || '📍'
 }
 
 function App() {
@@ -33,71 +85,82 @@ function App() {
   const userMarkerRef = useRef<L.CircleMarker | null>(null)
   const accuracyCircleRef = useRef<L.Circle | null>(null)
   const placeMarkerRefs = useRef<Map<string, L.Marker>>(new Map())
-  const [isExpanded, setIsExpanded] = useState(true)
-  const [isPicking, setIsPicking] = useState(false)
+  const loadTimerRef = useRef<number | null>(null)
+  const loadAbortRef = useRef<AbortController | null>(null)
+  const [isExpanded, setIsExpanded] = useState(false)
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
   const [places, setPlaces] = useState<Place[]>([])
   const [placesLoading, setPlacesLoading] = useState(false)
-  const [mapZoom, setMapZoom] = useState(13)
+  const [placesError, setPlacesError] = useState<string | null>(null)
 
-  const MAJOR_CATEGORIES = new Set([
-    'attraction',
-    'monument',
-    'castle',
-    'museum',
-    'cathedral',
-    'church',
-    'synagogue',
-    'mosque',
-    'memorial',
-    'archaeological_site',
-    'aquarium',
-    'zoo',
-    'theme_park',
-    'artwork',
-    'statue',
-    'fort',
-    'ruins',
-  ])
+  const { position, error, isSupported } = useGeolocation()
 
-  const {
-    position,
-    error,
-    isSupported,
-    isTestMode,
-    testPosition,
-    setTestPosition,
-  } = useGeolocation()
+  // Округляем до ~100 м: не дёргаем Nominatim на каждый тик GPS.
+  const geocodeLat = position ? Math.round(position.latitude * 1000) / 1000 : null
+  const geocodeLon = position ? Math.round(position.longitude * 1000) / 1000 : null
+  const geoCity = useReverseGeocode(geocodeLat, geocodeLon, Boolean(position))
 
-  const activePos = isTestMode ? testPosition : position
-  const { city: geoCity } = useReverseGeocode(
-    activePos?.latitude ?? null,
-    activePos?.longitude ?? null,
-    !!activePos
-  )
+  const displayCity =
+    geoCity ||
+    (position
+      ? `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`
+      : 'Москва')
 
-  const visiblePlaces = places.filter((place) => {
-    if (mapZoom >= 13) return true
-    return MAJOR_CATEGORIES.has(place.category)
-  })
+  const isPanelOpen = Boolean(selectedPlace) || isExpanded
 
-  const displayCity = geoCity || (activePos
-    ? `${activePos.latitude.toFixed(4)}, ${activePos.longitude.toFixed(4)}`
-    : 'Москва')
-
-  const loadPlaces = useCallback(async () => {
-    const pos = activePos
-    if (!pos) return
-    setPlacesLoading(true)
-    try {
-      const fetched = await fetchNearbyPlaces(pos.latitude, pos.longitude, 1000)
-      setPlaces(fetched)
-    } catch (err) {
-      console.error('Failed to load places:', err)
-    } finally {
-      setPlacesLoading(false)
+  const handleTogglePanel = () => {
+    if (selectedPlace) {
+      setSelectedPlace(null)
+      return
     }
-  }, [activePos])
+    setIsExpanded((prev) => !prev)
+  }
+
+  /**
+   * Загружает до 30 самых значимых объектов в текущих границах карты.
+   * Вызовы дебаунсятся, предыдущий запрос отменяется.
+   */
+  const loadPlaces = useCallback((delay: number) => {
+    if (loadTimerRef.current !== null) {
+      window.clearTimeout(loadTimerRef.current)
+    }
+
+    loadTimerRef.current = window.setTimeout(() => {
+      loadTimerRef.current = null
+
+      const map = mapInstance.current
+      if (!map) return
+
+      loadAbortRef.current?.abort()
+      const controller = new AbortController()
+      loadAbortRef.current = controller
+
+      const bounds = map.getBounds()
+      setPlacesLoading(true)
+      setPlacesError(null)
+
+      fetchTopPlaces(
+        {
+          south: bounds.getSouth(),
+          west: bounds.getWest(),
+          north: bounds.getNorth(),
+          east: bounds.getEast(),
+        },
+        controller.signal
+      )
+        .then((fetched) => {
+          if (!controller.signal.aborted) setPlaces(fetched)
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return
+          console.error('Failed to load places:', err)
+          setPlacesError('Не удалось загрузить объекты. Подвиньте карту, чтобы повторить.')
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setPlacesLoading(false)
+        })
+    }, delay)
+  }, [])
 
   const zoomIn = useCallback(() => {
     const map = mapInstance.current
@@ -110,15 +173,9 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadPlaces()
-    }, 800)
-    return () => clearTimeout(timer)
-  }, [loadPlaces])
-
-  useEffect(() => {
     if (!mapRef.current || mapInstance.current) return
 
+    const markers = placeMarkerRefs.current
     const map = L.map(mapRef.current, {
       center: MOSCOW_CENTER,
       zoom: 13,
@@ -128,21 +185,42 @@ function App() {
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
 
-    map.on('zoomend', () => {
-      setMapZoom(map.getZoom())
-    })
+    // Пока карту двигают или масштабируют — никаких запросов.
+    const cancelPendingLoad = () => {
+      if (loadTimerRef.current !== null) {
+        window.clearTimeout(loadTimerRef.current)
+        loadTimerRef.current = null
+      }
+      loadAbortRef.current?.abort()
+      setPlacesLoading(false)
+    }
+
+    // После остановки ждём 500 мс и только затем запрашиваем объекты.
+    const handleMoveEnd = () => loadPlaces(500)
+    map.on('movestart', cancelPendingLoad)
+    map.on('zoomstart', cancelPendingLoad)
+    map.on('moveend', handleMoveEnd)
 
     mapInstance.current = map
+    loadPlaces(0)
 
     return () => {
-      placeMarkerRefs.current.forEach((m) => map.removeLayer(m))
-      placeMarkerRefs.current.clear()
+      map.off('movestart', cancelPendingLoad)
+      map.off('zoomstart', cancelPendingLoad)
+      map.off('moveend', handleMoveEnd)
+      if (loadTimerRef.current !== null) {
+        window.clearTimeout(loadTimerRef.current)
+        loadTimerRef.current = null
+      }
+      loadAbortRef.current?.abort()
+      markers.forEach((m) => map.removeLayer(m))
+      markers.clear()
       map.remove()
       mapInstance.current = null
       userMarkerRef.current = null
       accuracyCircleRef.current = null
     }
-  }, [])
+  }, [loadPlaces])
 
   const renderPlaceMarkers = useCallback(() => {
     const map = mapInstance.current
@@ -151,34 +229,35 @@ function App() {
     placeMarkerRefs.current.forEach((m) => map.removeLayer(m))
     placeMarkerRefs.current.clear()
 
-    const visible = places.filter((place) => {
-      if (mapZoom >= 13) return true
-      return MAJOR_CATEGORIES.has(place.category)
-    })
-
-    visible.forEach((place) => {
+    places.forEach((place) => {
       const marker = L.marker([place.latitude, place.longitude], {
         title: place.name,
         alt: place.name,
         riseOnHover: true,
       })
       const color = getCategoryColor(place.category)
+      const emoji = getCategoryEmoji(place.category)
       marker.setIcon(
         L.divIcon({
           className: 'place-marker',
-          html: `<div style="background:${color};width:28px;height:28px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:bold">${place.category.charAt(0).toUpperCase()}</div>`,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
+          html: `<div style="background:${color};width:30px;height:30px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1">${emoji}</div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
         })
       )
+      marker.bindTooltip(place.name, {
+        direction: 'top',
+        offset: L.point(0, -16),
+      })
       marker.on('click', () => {
         setSelectedPlace(place)
-        map.flyTo([place.latitude, place.longitude], 15)
+        // Сохраняем текущий масштаб — только центрируем карту на объекте.
+        map.panTo([place.latitude, place.longitude])
       })
       marker.addTo(map)
       placeMarkerRefs.current.set(place.id, marker)
     })
-  }, [mapInstance, places, mapZoom])
+  }, [places])
 
   useEffect(() => {
     renderPlaceMarkers()
@@ -186,10 +265,9 @@ function App() {
 
   const updateUserMarker = useCallback(() => {
     const map = mapInstance.current
-    const pos = isTestMode ? testPosition : position
-    if (!map || !pos) return
+    if (!map || !position) return
 
-    const latlng = L.latLng(pos.latitude, pos.longitude)
+    const latlng = L.latLng(position.latitude, position.longitude)
 
     if (!userMarkerRef.current) {
       userMarkerRef.current = L.circleMarker(latlng, {
@@ -202,7 +280,7 @@ function App() {
       }).addTo(map)
 
       accuracyCircleRef.current = L.circle(latlng, {
-        radius: pos.accuracy,
+        radius: position.accuracy,
         color: '#2563eb',
         weight: 1,
         opacity: 0.3,
@@ -210,64 +288,22 @@ function App() {
       }).addTo(map)
     } else {
       userMarkerRef.current.setLatLng(latlng)
-      userMarkerRef.current.setStyle({
-        radius: 8,
-        fillColor: '#2563eb',
-        color: '#fff',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 1,
-      })
       if (accuracyCircleRef.current) {
         accuracyCircleRef.current.setLatLng(latlng)
-        accuracyCircleRef.current.setRadius(pos.accuracy)
+        accuracyCircleRef.current.setRadius(position.accuracy)
       }
     }
-  }, [mapInstance, userMarkerRef, accuracyCircleRef, isTestMode, testPosition, position])
+  }, [position])
 
   useEffect(() => {
     updateUserMarker()
   }, [updateUserMarker])
 
-  const handleMapClick = useCallback(
-    (e: L.LeafletMouseEvent) => {
-      if (!isPicking) return
-      setTestPosition({
-        latitude: e.latlng.lat,
-        longitude: e.latlng.lng,
-        accuracy: 10,
-        timestamp: Date.now(),
-      })
-      setIsPicking(false)
-    },
-    [isPicking, setTestPosition]
-  )
-
-  useEffect(() => {
-    const map = mapInstance.current
-    if (!map) return
-
-    if (isPicking) {
-      map.on('click', handleMapClick)
-      map.getContainer().style.cursor = 'crosshair'
-    } else {
-      map.off('click', handleMapClick)
-      map.getContainer().style.cursor = ''
-    }
-
-    return () => {
-      map.off('click', handleMapClick)
-      map.getContainer().style.cursor = ''
-    }
-  }, [isPicking, handleMapClick])
-
   return (
     <div className="app">
       <div className="map" ref={mapRef} />
 
-      {selectedPlace && (
-        <PlaceCard place={selectedPlace} onClose={() => setSelectedPlace(null)} />
-      )}
+      {selectedPlace && <PlaceCard place={selectedPlace} />}
 
       <button className="search" aria-label="Поиск">
         <svg
@@ -287,8 +323,8 @@ function App() {
 
       <button
         className="fab toggle-sheet"
-        aria-label={isExpanded ? 'Свернуть панель' : 'Развернуть панель'}
-        onClick={() => setIsExpanded((p) => !p)}
+        aria-label={isPanelOpen ? 'Свернуть панель' : 'Развернуть панель'}
+        onClick={handleTogglePanel}
       >
         <svg
           width="20"
@@ -300,7 +336,7 @@ function App() {
           strokeLinecap="round"
           strokeLinejoin="round"
         >
-          {isExpanded ? (
+          {isPanelOpen ? (
             <>
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
@@ -352,7 +388,7 @@ function App() {
         }}
       >
         <div className="sheet-header" onClick={() => setIsExpanded((p) => !p)}>
-          <h1>{displayCity}</h1>
+          <h1>{selectedPlace ? selectedPlace.name : displayCity}</h1>
         </div>
 
         <div className="sheet-content">
@@ -371,6 +407,10 @@ function App() {
 
       {placesLoading && (
         <div className="places-loading">Загрузка достопримечательностей…</div>
+      )}
+
+      {placesError && !placesLoading && (
+        <div className="places-loading places-error">{placesError}</div>
       )}
     </div>
   )
