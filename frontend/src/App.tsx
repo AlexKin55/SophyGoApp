@@ -96,6 +96,7 @@ function App() {
   const loadAbortRef = useRef<AbortController | null>(null)
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
+  const [failedPhotoId, setFailedPhotoId] = useState<string | null>(null)
   const [places, setPlaces] = useState<Place[]>([])
   const [placesLoading, setPlacesLoading] = useState(false)
   const [placesError, setPlacesError] = useState<string | null>(null)
@@ -374,7 +375,7 @@ function App() {
 
       <div className={`drawer ${isDrawerOpen ? 'open' : 'closed'}`}>
         <div
-          className="drawer-header"
+          className={`drawer-header ${selectedPlace ? 'drawer-header-compact' : ''}`}
           role="button"
           tabIndex={0}
           aria-label={isDrawerOpen ? 'Свернуть панель' : 'Развернуть панель'}
@@ -387,22 +388,28 @@ function App() {
           }}
         >
           <span className="drawer-handle" aria-hidden="true" />
-          <h1>{selectedPlace ? selectedPlace.name : displayCity}</h1>
+          {/* Название объекта показываем на фото, в заголовке — город/локация. */}
+          {!selectedPlace && <h1>{displayCity}</h1>}
         </div>
 
         <div className="drawer-content">
           <div className="photo-pane">
         {selectedPlace ? (
-          <>
-            {selectedPlace.images?.length ? (
-              <img src={selectedPlace.images[0]} alt={selectedPlace.name} />
-            ) : (
-              <div className="photo-pane-placeholder" aria-hidden="true">
-                📍
-              </div>
-            )}
-            <div className="photo-pane-title">{selectedPlace.name}</div>
-          </>
+          selectedPlace.images?.length && failedPhotoId !== selectedPlace.id ? (
+            <>
+              <img
+                src={selectedPlace.images[0]}
+                alt={selectedPlace.name}
+                onError={() => setFailedPhotoId(selectedPlace.id)}
+              />
+              <div className="photo-pane-title">{selectedPlace.name}</div>
+            </>
+          ) : (
+            <div className="photo-pane-placeholder">
+              <span aria-hidden="true">📍</span>
+              <p>{selectedPlace.name}</p>
+            </div>
+          )
         ) : (
           <div className="photo-pane-placeholder">
             <span aria-hidden="true">📍</span>
