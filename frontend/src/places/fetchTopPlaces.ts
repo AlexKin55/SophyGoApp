@@ -32,6 +32,15 @@ interface NominatimPlace {
   name?: string
 }
 
+interface OverpassElement {
+  type: string
+  id: number
+  lat?: number
+  lon?: number
+  center?: { lat: number; lon: number }
+  tags?: Record<string, string>
+}
+
 interface CategoryRule {
   category: string
   keywords: string[]
@@ -50,15 +59,51 @@ const CACHE_LIMIT = env.places.cacheLimit
 const MAX_CONCURRENT_REQUESTS = env.places.maxConcurrentRequests
 const RETRY_DELAY_MS = env.places.retryDelayMs
 
-/** Сколько мест резервируем под парки/скверы из OSM. */
-const OSM_RESERVED = env.places.osmReserved
-const OSM_WAIT_MS = env.places.osmWaitMs
 const NOMINATIM_URL = env.places.nominatimUrl
 const NOMINATIM_TIMEOUT_MS = env.places.nominatimTimeoutMs
 const NOMINATIM_DELAY_MS = env.places.nominatimDelayMs
 const NOMINATIM_QUERIES = env.places.nominatimQueries
 
+/** Резервный источник объектов: OSM Overpass (не зависит от Wikimedia). */
+const OVERPASS_URLS = env.places.overpassUrls
+const OVERPASS_TIMEOUT_MS = env.places.overpassTimeoutMs
+
+/** Сколько ждём Wikimedia, прежде чем переключиться на OSM. */
+const WIKI_FALLBACK_WAIT_MS = 6_000
+
 let lastNominatimRequestAt = 0
+
+/** Endpoint, который уже ответил успешно: в следующий раз пробуем его первым. */
+let preferredOverpassUrl: string | null = null
+
+const STORAGE_KEY = 'sophygo:places:v1'
+
+/** Последний удачный список объектов — на случай недоступности всех API. */
+function readStoredPlaces(bounds: MapBounds): Place[] {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as { places?: Place[] }
+    const places = Array.isArray(parsed.places) ? parsed.places : []
+    return places.filter(
+      (place) =>
+        place.latitude >= bounds.south &&
+        place.latitude <= bounds.north &&
+        place.longitude >= bounds.west &&
+        place.longitude <= bounds.east
+    )
+  } catch {
+    return []
+  }
+}
+
+function writeStoredPlaces(places: Place[]): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ at: Date.now(), places }))
+  } catch {
+    // Хранилище недоступно (приватный режим) — работаем без него.
+  }
+}
 
 interface CacheEntry {
   at: number
@@ -344,6 +389,23 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+/** Ограничивает ожидание источника: по таймауту переключаемся на резерв. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('timeout')), ms)
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        window.clearTimeout(timer)
+        reject(err)
+      }
+    )
+  })
+}
+
 /** Небольшой семафор: Wikipedia отвечает 429 на пачку параллельных запросов. */
 async function withLimit<T>(task: () => Promise<T>): Promise<T> {
   if (activeRequests >= MAX_CONCURRENT_REQUESTS) {
@@ -580,6 +642,53 @@ function normalizeName(name: string): string {
 }
 
 function nominatimCategory(item: NominatimPlace): string | null {
+  if (item.category === 'tourism') {
+    switch (item.type) {
+      case 'museum':
+        return 'museum'
+      case 'gallery':
+        return 'gallery'
+      case 'artwork':
+        return 'artwork'
+      case 'viewpoint':
+        return 'viewpoint'
+      case 'zoo':
+        return 'zoo'
+      case 'theme_park':
+        return 'theme_park'
+      case 'attraction':
+        return 'attraction'
+      default:
+        return null
+    }
+  }
+
+  if (item.category === 'historic') {
+    switch (item.type) {
+      case 'memorial':
+        return 'memorial'
+      case 'monument':
+        return 'monument'
+      case 'castle':
+        return 'castle'
+      case 'fort':
+        return 'fort'
+      case 'palace':
+        return 'palace'
+      case 'ruins':
+        return 'ruins'
+      case 'archaeological_site':
+        return 'archaeological_site'
+      default:
+        return 'historic_building'
+    }
+  }
+
+  if (item.category === 'amenity') {
+    if (item.type === 'theatre') return 'theatre'
+    if (item.type === 'arts_centre') return 'arts_centre'
+  }
+
   if (item.category === 'leisure') {
     if (item.type === 'garden') return 'garden'
     if (item.type === 'nature_reserve') return 'nature_reserve'
@@ -589,6 +698,158 @@ function nominatimCategory(item: NominatimPlace): string | null {
   if (item.category === 'landuse' && item.type === 'forest') return 'park'
   if (item.category === 'place' && item.type === 'square') return 'attraction'
   return null
+}
+
+function overpassCategory(tags: Record<string, string>): string | null {
+  switch (tags.tourism) {
+    case 'museum':
+      return 'museum'
+    case 'gallery':
+      return 'gallery'
+    case 'artwork':
+      return 'artwork'
+    case 'viewpoint':
+      return 'viewpoint'
+    case 'zoo':
+      return 'zoo'
+    case 'theme_park':
+      return 'theme_park'
+    case 'attraction':
+      return 'attraction'
+    default:
+      break
+  }
+
+  switch (tags.historic) {
+    case 'memorial':
+      return 'memorial'
+    case 'monument':
+      return 'monument'
+    case 'castle':
+      return 'castle'
+    case 'fort':
+      return 'fort'
+    case 'palace':
+      return 'palace'
+    case 'ruins':
+      return 'ruins'
+    case 'archaeological_site':
+      return 'archaeological_site'
+    default:
+      break
+  }
+
+  if (tags.leisure === 'park') return 'park'
+  if (tags.leisure === 'garden') return 'garden'
+  if (tags.amenity === 'theatre') return 'theatre'
+  if (tags.amenity === 'arts_centre') return 'arts_centre'
+  return null
+}
+
+function overpassName(tags: Record<string, string>): string {
+  return (tags['name:ru'] || tags.name || tags['name:en'] || '').trim()
+}
+
+function buildOverpassQuery(bounds: MapBounds): string {
+  const bbox = [bounds.south, bounds.west, bounds.north, bounds.east].join(',')
+  return `[out:json][timeout:20];(
+nwr["tourism"~"^(attraction|museum|gallery|artwork|viewpoint|zoo|theme_park)$"](${bbox});
+nwr["historic"~"^(memorial|monument|castle|fort|palace|ruins|archaeological_site)$"](${bbox});
+nwr["leisure"~"^(park|garden)$"](${bbox});
+nwr["amenity"~"^(theatre|arts_centre)$"](${bbox});
+);out center ${MAX_RESULTS * 4};`
+}
+
+function overpassPlaces(elements: OverpassElement[]): Place[] {
+  const byName = new Map<string, { place: Place; score: number }>()
+
+  for (const element of elements) {
+    const tags = element.tags ?? {}
+    const name = overpassName(tags)
+    const category = overpassCategory(tags)
+    const latitude = element.lat ?? element.center?.lat
+    const longitude = element.lon ?? element.center?.lon
+
+    if (
+      !name ||
+      !category ||
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude)
+    ) {
+      continue
+    }
+
+    const image = tags.image
+    const score =
+      (CATEGORY_WEIGHTS[category] ?? 12) +
+      (tags.wikipedia ? 8 : 0) +
+      (image ? 2 : 0)
+    const key = normalizeName(name)
+    const existing = byName.get(key)
+
+    if (!existing || score > existing.score) {
+      byName.set(key, {
+        place: {
+          id: `osm/${element.type}/${element.id}`,
+          name,
+          latitude: latitude as number,
+          longitude: longitude as number,
+          category,
+          images: image && /^https?:\/\//.test(image) ? [image] : [],
+        },
+        score,
+      })
+    }
+  }
+
+  return [...byName.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_RESULTS)
+    .map((entry) => entry.place)
+}
+
+/**
+ * Загружает достопримечательности из OSM Overpass. Это основной источник:
+ * Wikimedia API периодически недоступен из России, а карта и Overpass работают.
+ * Endpoint'ы перебираются по порядку, пока один не ответит.
+ */
+async function fetchOsmAttractions(
+  bounds: MapBounds,
+  signal?: AbortSignal
+): Promise<Place[]> {
+  const query = buildOverpassQuery(bounds)
+  const urls = preferredOverpassUrl
+    ? [preferredOverpassUrl, ...OVERPASS_URLS.filter((url) => url !== preferredOverpassUrl)]
+    : OVERPASS_URLS
+  let lastError: unknown = null
+
+  for (const url of urls) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+
+    try {
+      const data = await fetchJson<{ elements?: OverpassElement[] }>(
+        url,
+        'application/json',
+        signal,
+        new URLSearchParams({ data: query }),
+        OVERPASS_TIMEOUT_MS
+      )
+      const places = overpassPlaces(data.elements ?? [])
+      if (places.length) {
+        preferredOverpassUrl = url
+        return places
+      }
+    } catch (err) {
+      if (signal?.aborted) throw err
+      lastError = err
+      logger.warn('Overpass endpoint unavailable', { url, error: String(err) })
+    }
+  }
+
+  if (lastError) {
+    logger.warn('Overpass attractions unavailable', { error: String(lastError) })
+  }
+  return []
 }
 
 /**
@@ -682,28 +943,12 @@ async function fetchOsmParks(
     .map((entry) => entry.place)
 }
 
-function mergePlaces(wikiPlaces: Place[], osmPlaces: Place[]): Place[] {
-  const names = new Set(wikiPlaces.map((place) => normalizeName(place.name)))
-
-  const extra = osmPlaces
-    .filter((place) => {
-      const key = normalizeName(place.name)
-      if (names.has(key)) return false
-      names.add(key)
-      return true
-    })
-    .slice(0, OSM_RESERVED)
-
-  return [...wikiPlaces.slice(0, MAX_RESULTS - extra.length), ...extra]
-}
-
 /**
  * Возвращает MAX_RESULTS самых значимых объектов в границах карты.
  *
- * Wikipedia GeoSearch — бесплатный геоиндекс без API-ключа: bbox делится
- * на ячейки, результаты фильтруются по типу и категориям статей.
- * OSM/Nominatim дополняет выборку небольшими парками, скверами и площадями,
- * которых обычно нет в Wikipedia.
+ * Основной источник — Wikipedia GeoSearch. Параллельно запускаем Nominatim:
+ * если Wikimedia не ответила за WIKI_FALLBACK_WAIT_MS, берём объекты из OSM,
+ * чтобы карта не оставалась пустой при недоступности Википедии.
  */
 export async function fetchTopPlaces(
   bounds: MapBounds,
@@ -713,23 +958,65 @@ export async function fetchTopPlaces(
   const cached = readCache(clamped)
   if (cached) return cached.places
 
+  const osmController = new AbortController()
+  const wikiController = new AbortController()
+  const abortOsm = () => osmController.abort()
+  const abortWiki = () => wikiController.abort()
+  signal?.addEventListener('abort', abortOsm, { once: true })
+  signal?.addEventListener('abort', abortWiki, { once: true })
+
+  const nominatimPromise = fetchOsmParks(clamped, osmController.signal).catch(() => [])
+
   try {
-    const places = await loadTopPlaces(clamped, signal)
-    writeCache(clamped, places)
-    return places
+    const places = await withTimeout(
+      loadTopPlaces(clamped, wikiController.signal),
+      WIKI_FALLBACK_WAIT_MS
+    )
+
+    if (places.length) {
+      osmController.abort()
+      writeCache(clamped, places)
+      writeStoredPlaces(places)
+      return places
+    }
   } catch (err) {
+    wikiController.abort()
     if (signal?.aborted) throw err
-    const stale = peekCache(clamped)
-    if (stale) return stale.places
-    throw err
+  } finally {
+    signal?.removeEventListener('abort', abortOsm)
+    signal?.removeEventListener('abort', abortWiki)
   }
+
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+
+  let osmPlaces = await nominatimPromise
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+
+  // Nominatim не дал результатов — пробуем Overpass (если он доступен).
+  if (!osmPlaces.length) {
+    osmPlaces = await fetchOsmAttractions(clamped, osmController.signal).catch(() => [])
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  }
+
+  if (osmPlaces.length) {
+    writeCache(clamped, osmPlaces)
+    writeStoredPlaces(osmPlaces)
+    return osmPlaces
+  }
+
+  const stale = peekCache(clamped)
+  if (stale) return stale.places
+
+  const stored = readStoredPlaces(clamped)
+  if (stored.length) return stored
+
+  throw new Error('Не удалось загрузить объекты')
 }
 
 async function loadTopPlaces(
   bounds: MapBounds,
   signal?: AbortSignal
 ): Promise<Place[]> {
-  const osmPromise = fetchOsmParks(bounds, signal).catch(() => [])
   const cells = splitBounds(bounds)
   const results: Array<{ pages?: GeoPage[]; error?: unknown }> = []
 
@@ -822,10 +1109,5 @@ async function loadTopPlaces(
     }
   })
 
-  // Не ждём Overpass дольше 5 секунд: если он недоступен, показываем Wikipedia.
-  const osmParks = await Promise.race([
-    osmPromise,
-    delay(OSM_WAIT_MS).then(() => [] as Place[]),
-  ])
-  return mergePlaces(wikiPlaces, osmParks)
+  return wikiPlaces
 }

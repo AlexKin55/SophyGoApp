@@ -61,6 +61,10 @@ interface ImportMetaEnv {
 
   readonly VITE_WIKIPEDIA_API_URL?: string
   readonly VITE_NOMINATIM_URL?: string
+  /** Список endpoint'ов Overpass API через запятую. */
+  readonly VITE_OVERPASS_URLS?: string
+  /** Таймаут запроса к Overpass API, мс. */
+  readonly VITE_OVERPASS_TIMEOUT_MS?: string
   readonly VITE_PLACES_MAX_RESULTS?: string
   readonly VITE_PLACES_GEOSEARCH_LIMIT?: string
   readonly VITE_PLACES_CATEGORY_CANDIDATES?: string
@@ -71,8 +75,6 @@ interface ImportMetaEnv {
   readonly VITE_PLACES_CACHE_LIMIT?: string
   readonly VITE_PLACES_MAX_CONCURRENT_REQUESTS?: string
   readonly VITE_PLACES_RETRY_DELAY_MS?: string
-  readonly VITE_PLACES_OSM_RESERVED?: string
-  readonly VITE_PLACES_OSM_WAIT_MS?: string
   readonly VITE_PLACES_NOMINATIM_TIMEOUT_MS?: string
   readonly VITE_PLACES_NOMINATIM_DELAY_MS?: string
   readonly VITE_PLACES_NOMINATIM_QUERIES?: string
