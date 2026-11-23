@@ -1,0 +1,29 @@
+[Unit]
+Description=SophyGo API
+Documentation=https://sophygo.pro
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sophygo
+Group=sophygo
+WorkingDirectory=/opt/sophygo/backend
+EnvironmentFile=/opt/sophygo/backend/.env
+ExecStart=/opt/sophygo/backend/bin/sophygo-api
+Restart=always
+RestartSec=5
+
+# Изоляция процесса: сервису нужен доступ только к своему каталогу данных.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/sophygo/data
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sophygo-api
+
+[Install]
+WantedBy=multi-user.target

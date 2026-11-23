@@ -2,6 +2,25 @@
 
 Python 3, только стандартная библиотека. Запускать из корня проекта или из любой папки — пути вычисляются относительно скриптов.
 
+## Первый запуск после клонирования
+
+```bash
+git clone git@github.com:AlexKin55/SophyGoApp.git
+cd SophyGoApp
+python3 scripts/start_services.py
+```
+
+Скрипт сам подготовит окружение:
+
+- создаст `backend/.env` из `backend/.env.example`, если файла ещё нет, и включит локальный `DEV_AUTH_USER_ID=1`;
+- создаст `frontend/.env.development.local` с `VITE_DEV_AUTH=true`;
+- установит зависимости frontend через `npm ci`, если `node_modules` отсутствует;
+- запустит backend на `http://localhost:8080` и frontend на `http://localhost:5173`.
+
+Открывать приложение нужно по адресу `http://localhost:5173/` (именно `localhost`, не `127.0.0.1`: Vite слушает IPv6-loopback).
+
+Для голосового Гида после первого запуска заполните в `backend/.env` значения `TELEGRAM_BOT_TOKEN`, `YANDEX_API_KEY` и `YANDEX_FOLDER_ID`. Без них интерфейс и карта работают, а голосовые запросы вернут `503`.
+
 | Скрипт | Назначение |
 | --- | --- |
 | `build_backend.py` | Собирает backend в `backend/bin/sophygo-api` |

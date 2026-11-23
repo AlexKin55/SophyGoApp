@@ -1,2 +1,8 @@
 screenshots/
 .DS_Store
+
+# Локальные секреты и runtime-данные
+backend/.env
+backend/data/
+scripts/.run/
+__pycache__/

@@ -46,6 +46,8 @@ function staticVadAssets(): Plugin {
 export default defineConfig({
   plugins: [react(), staticVadAssets()],
   server: {
+    // Vite dev запускается на VPS за nginx: разрешаем публичный домен.
+    allowedHosts: ['sophygo.pro', 'www.sophygo.pro', 'localhost', '127.0.0.1'],
     proxy: {
       // В dev-режиме запросы к backend уходят на локальный Go-сервис.
       '/api': {

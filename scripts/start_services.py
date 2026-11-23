@@ -14,13 +14,18 @@ Backend читает backend/.env автоматически; frontend — front
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
+import subprocess
 import sys
 
 from _common import (
+    BACKEND_BINARY,
     BACKEND_DIR,
     FRONTEND_DIR,
     FRONTEND_PORT,
     HEALTH_URLS,
+    build_env,
     fail,
     log,
     require_tool,
@@ -31,13 +36,90 @@ from _common import (
 
 
 def backend_command() -> list[str]:
-    go = require_tool("go")
-    return [go, "run", "./cmd/server"]
+    """go run, если Go установлен, иначе — заранее собранный бинарник."""
+    go = shutil.which("go", path=build_env().get("PATH"))
+    if go:
+        return [go, "run", "./cmd/server"]
+    if BACKEND_BINARY.is_file():
+        return [str(BACKEND_BINARY)]
+    fail("не найден go и нет собранного backend/bin/sophygo-api")
+    return []  # недостижимо
 
 
 def frontend_command() -> list[str]:
     npm = require_tool("npm")
-    return [npm, "run", "dev", "--", "--port", str(FRONTEND_PORT), "--strictPort"]
+    command = [npm, "run", "dev", "--", "--port", str(FRONTEND_PORT), "--strictPort"]
+    host = os.environ.get("FRONTEND_HOST", "").strip()
+    if host:
+        command.extend(["--host", host])
+    return command
+
+
+def set_env_value(content: str, key: str, value: str) -> str:
+    """Заменяет или добавляет KEY=VALUE в содержимом .env-файла."""
+    lines = content.splitlines()
+    prefix = f"{key}="
+    for index, line in enumerate(lines):
+        if line.strip().startswith(prefix):
+            lines[index] = f"{key}={value}"
+            break
+    else:
+        lines.append(f"{key}={value}")
+
+    return "\n".join(lines) + "\n"
+
+
+def ensure_backend_env() -> None:
+    """Создаёт backend/.env для локального запуска, если его ещё нет."""
+    env_path = BACKEND_DIR / ".env"
+    if env_path.exists():
+        return
+
+    example = BACKEND_DIR / ".env.example"
+    if not example.exists():
+        log("предупреждение: backend/.env и backend/.env.example не найдены")
+        return
+
+    content = example.read_text(encoding="utf-8")
+    content = set_env_value(
+        content,
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    )
+    content = set_env_value(content, "DEV_AUTH_USER_ID", "1")
+    env_path.write_text(content, encoding="utf-8")
+
+    log("создан backend/.env из backend/.env.example (локальный режим)")
+    log(
+        "для голосового Гида заполните TELEGRAM_BOT_TOKEN, "
+        "YANDEX_API_KEY и YANDEX_FOLDER_ID"
+    )
+
+
+def ensure_frontend_env() -> None:
+    """Включает локальную отладку без Telegram в dev-режиме."""
+    env_path = FRONTEND_DIR / ".env.development.local"
+    if env_path.exists():
+        return
+
+    env_path.write_text("VITE_DEV_AUTH=true\n", encoding="utf-8")
+    log("создан frontend/.env.development.local (VITE_DEV_AUTH=true)")
+
+
+def ensure_frontend_deps() -> None:
+    """Устанавливает npm-зависимости, если после клонирования их ещё нет."""
+    if (FRONTEND_DIR / "node_modules").is_dir():
+        return
+
+    npm = require_tool("npm")
+    log("устанавливаю зависимости frontend (npm ci)…")
+    result = subprocess.run(
+        [npm, "ci", "--no-audit", "--no-fund"],
+        cwd=FRONTEND_DIR,
+        check=False,
+    )
+    if result.returncode != 0:
+        fail("не удалось установить зависимости frontend (npm ci)")
 
 
 def main() -> int:
@@ -69,12 +151,11 @@ def main() -> int:
     targets = ["backend", "frontend"] if args.only == "both" else [args.only]
 
     if "backend" in targets:
-        env_file = BACKEND_DIR / ".env"
-        if not env_file.exists():
-            log(
-                "предупреждение: backend/.env не найден. "
-                "Скопируйте backend/.env.example в backend/.env и заполните ключи."
-            )
+        ensure_backend_env()
+
+    if "frontend" in targets:
+        ensure_frontend_env()
+        ensure_frontend_deps()
 
     if args.restart:
         for name in targets:
