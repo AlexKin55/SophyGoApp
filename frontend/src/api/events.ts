@@ -1,5 +1,5 @@
 import type { Place } from '../places/places'
-import { getTelegramInitData } from '../platform/telegram'
+import { getInitData, getMessengerKind } from '../platform/messenger'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
 
@@ -51,13 +51,13 @@ export function getSessionId(): string {
  * чтобы сервер мог связать событие с сессией Гида.
  */
 export async function sendPlaceOpen(place: Place, sessionId?: string): Promise<PlaceOpenResult | null> {
-  const initData = getTelegramInitData()
+  const initData = getInitData()
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
   if (initData) {
-    headers['X-Telegram-Init-Data'] = initData
+    headers['X-Init-Data'] = initData
   }
 
   const payload = {
@@ -70,7 +70,7 @@ export async function sendPlaceOpen(place: Place, sessionId?: string): Promise<P
     },
     client: {
       sessionId: getSessionId(),
-      platform: initData ? 'telegram' : 'browser',
+      platform: getMessengerKind(),
       userAgent: navigator.userAgent,
       language: navigator.language,
     },

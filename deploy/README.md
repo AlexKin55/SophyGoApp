@@ -96,10 +96,41 @@ LOGGING_ENABLED=true
 LOG_FORMAT=json
 LOG_FILE=/opt/sophygo/data/backend.log
 CLIENT_LOG_FILE=/opt/sophygo/data/frontend-client.log
+
+[telegram]
+BOT_TOKEN=<токен Telegram-бота>
+INIT_DATA_MAX_AGE=24h
+
+[max]
+BOT_TOKEN=<токен бота MAX>
+INIT_DATA_MAX_AGE=1h
 ```
 
-Секреты `TELEGRAM_BOT_TOKEN`, `YANDEX_API_KEY`, `YANDEX_FOLDER_ID`
-заданы в этом же файле и в репозиторий не попадают.
+Ключи внутри секций получают префикс: `[telegram] BOT_TOKEN` читается
+как `TELEGRAM_BOT_TOKEN`, `[max] BOT_TOKEN` — как `MAX_BOT_TOKEN`.
+Поэтому один `.env` обслуживает оба мессенджера, а секреты
+`YANDEX_API_KEY` и `YANDEX_FOLDER_ID` лежат там же и в репозиторий
+не попадают.
+
+## Сборка под Telegram или MAX
+
+Мессенджер выбирается при сборке backend:
+
+```bash
+# Telegram (по умолчанию)
+SUDO_PASS='<пароль sudo>' python3 deploy/deploy.py --api=telegram
+
+# MAX
+SUDO_PASS='<пароль sudo>' python3 deploy/deploy.py --api=max
+```
+
+Значение вшивается в бинарник через `-ldflags "-X main.apiKind=..."`.
+Для локальной отладки его можно переопределить переменной окружения
+`MESSENGER_API=telegram|max`.
+
+Frontend один и тот же: он определяет мессенджер по непустому `initData`
+(`window.Telegram.WebApp` или `window.WebApp` от MAX Bridge) и передаёт
+его на backend в заголовке `X-Init-Data`.
 
 ## Размер маркеров
 

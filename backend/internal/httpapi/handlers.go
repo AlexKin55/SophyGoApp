@@ -20,8 +20,8 @@ import (
 	"github.com/sophygo/backend/internal/clientlog"
 	"github.com/sophygo/backend/internal/events"
 	"github.com/sophygo/backend/internal/guide"
+	"github.com/sophygo/backend/internal/messenger"
 	"github.com/sophygo/backend/internal/realtime"
-	"github.com/sophygo/backend/internal/telegram"
 )
 
 const (
@@ -86,7 +86,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 
 // handleCreateSession проверяет initData и создаёт сессию Гида.
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
-	initData, ok := s.requireTelegram(w, r)
+	initData, ok := s.requireMessenger(w, r)
 	if !ok {
 		return
 	}
@@ -116,7 +116,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		InputRate:         s.realtime.InputRate,
 		OutputRate:        s.realtime.OutputRate,
 		ExpiresAt:         info.ExpiresAt,
-		User:              telegramUser(initData.User),
+		User:              messengerUser(initData.User),
 	})
 }
 
@@ -164,7 +164,7 @@ func (s *Server) handlePlaceOpen(w http.ResponseWriter, r *http.Request) {
 	event := events.NewEventWithLimits(request, now, clientIP(r), s.eventLimits)
 	event.SessionID = sessionID
 	if initData != nil {
-		user := telegramUser(initData.User)
+		user := messengerUser(initData.User)
 		event.Telegram = &user
 	}
 
@@ -212,7 +212,7 @@ func (s *Server) handlePlaceOpen(w http.ResponseWriter, r *http.Request) {
 
 // handleStopSession прерывает текущий ответ Гида.
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
-	initData, ok := s.requireTelegram(w, r)
+	initData, ok := s.requireMessenger(w, r)
 	if !ok {
 		return
 	}
@@ -524,14 +524,23 @@ func (s *Server) handleRecentEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) authenticate(r *http.Request) (*telegram.InitData, error) {
-	raw := strings.TrimSpace(r.Header.Get("X-Telegram-Init-Data"))
+// authenticate читает initData из общего заголовка или из заголовков
+// конкретных мессенджеров (для обратной совместимости).
+func (s *Server) authenticate(r *http.Request) (*messenger.InitData, error) {
+	raw := strings.TrimSpace(r.Header.Get("X-Init-Data"))
+	if raw == "" {
+		raw = strings.TrimSpace(r.Header.Get("X-Telegram-Init-Data"))
+	}
+	if raw == "" {
+		raw = strings.TrimSpace(r.Header.Get("X-Max-Init-Data"))
+	}
+
 	if raw == "" {
 		// DEV_AUTH_USER_ID включает локальную отладку в обычном браузере,
-		// где Telegram WebApp недоступен и initData отсутствует.
+		// где initData мессенджера отсутствует.
 		if s.devAuthUserID > 0 {
-			return &telegram.InitData{
-				User: telegram.User{
+			return &messenger.InitData{
+				User: messenger.User{
 					ID:        s.devAuthUserID,
 					FirstName: "Dev",
 					Username:  "dev",
@@ -540,20 +549,20 @@ func (s *Server) authenticate(r *http.Request) (*telegram.InitData, error) {
 		}
 		return nil, nil
 	}
-	if s.telegram == nil {
-		return nil, telegram.ErrNotConfigured
+	if s.messenger == nil {
+		return nil, messenger.ErrNotConfigured
 	}
-	return s.telegram.Verify(raw)
+	return s.messenger.Verify(raw)
 }
 
-func (s *Server) requireTelegram(w http.ResponseWriter, r *http.Request) (*telegram.InitData, bool) {
+func (s *Server) requireMessenger(w http.ResponseWriter, r *http.Request) (*messenger.InitData, bool) {
 	initData, err := s.authenticate(r)
 	if err != nil {
 		s.writeAuthError(w, err)
 		return nil, false
 	}
 	if initData == nil {
-		writeError(w, http.StatusUnauthorized, "требуется Telegram initData")
+		writeError(w, http.StatusUnauthorized, "требуется initData мессенджера")
 		return nil, false
 	}
 	return initData, true
@@ -561,11 +570,18 @@ func (s *Server) requireTelegram(w http.ResponseWriter, r *http.Request) (*teleg
 
 func (s *Server) writeAuthError(w http.ResponseWriter, err error) {
 	status := http.StatusUnauthorized
-	if errors.Is(err, telegram.ErrNotConfigured) {
+	if errors.Is(err, messenger.ErrNotConfigured) {
 		status = http.StatusServiceUnavailable
 	}
-	s.logger.Warn("telegram auth failed", "error", err)
-	writeError(w, status, "не удалось проверить Telegram initData")
+	s.logger.Warn("messenger auth failed", "messenger", s.messengerName(), "error", err)
+	writeError(w, status, "не удалось проверить initData мессенджера")
+}
+
+func (s *Server) messengerName() string {
+	if s.messenger == nil {
+		return "none"
+	}
+	return s.messenger.Name()
 }
 
 // resolveSession возвращает существующую сессию пользователя или создаёт новую.
@@ -584,7 +600,7 @@ func (s *Server) resolveSession(sessionID string, telegramUserID int64) (string,
 	return sessionID, nil
 }
 
-func telegramUser(user telegram.User) events.TelegramUser {
+func messengerUser(user messenger.User) events.TelegramUser {
 	return events.TelegramUser{
 		ID:           user.ID,
 		Username:     user.Username,

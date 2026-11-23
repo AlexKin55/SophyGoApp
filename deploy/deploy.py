@@ -96,6 +96,12 @@ def main() -> int:
         action="store_true",
         help="не загружать артефакты на VPS",
     )
+    parser.add_argument(
+        "--api",
+        choices=("telegram", "max"),
+        default="telegram",
+        help="мессенджер, под который собирается backend (по умолчанию telegram)",
+    )
     args = parser.parse_args()
 
     host = args.vps_host
@@ -112,8 +118,13 @@ def main() -> int:
 
     try:
         if not args.skip_build:
-            log("сборка backend (локально)")
-            run([sys.executable, str(ROOT_DIR / "scripts" / "build_backend.py")])
+            log(f"сборка backend (локально, api={args.api})")
+            run([
+                sys.executable,
+                str(ROOT_DIR / "scripts" / "build_backend.py"),
+                "--api",
+                args.api,
+            ])
 
             log("сборка frontend (локально)")
             run(["npm", "run", "build"], cwd=ROOT_DIR / "frontend")

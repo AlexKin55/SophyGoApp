@@ -1,4 +1,4 @@
-import { getTelegramInitData } from '../platform/telegram'
+import { getInitData } from '../platform/messenger'
 import { env } from '../config/env'
 
 const API_BASE_URL = env.apiBaseUrl
@@ -22,16 +22,16 @@ export interface GuideSession {
   user: GuideUser
 }
 
-function telegramHeaders(): Record<string, string> {
-  const initData = getTelegramInitData()
-  return initData ? { 'X-Telegram-Init-Data': initData } : {}
+function initDataHeaders(): Record<string, string> {
+  const initData = getInitData()
+  return initData ? { 'X-Init-Data': initData } : {}
 }
 
 /** Создаёт (или переиспользует) серверную сессию Гида и выдаёт токен WebSocket. */
 export async function createGuideSession(): Promise<GuideSession> {
   const response = await fetch(`${API_BASE_URL}/api/v1/session`, {
     method: 'POST',
-    headers: telegramHeaders(),
+    headers: initDataHeaders(),
     signal: AbortSignal.timeout(env.apiRequestTimeoutMs),
   })
 
@@ -53,7 +53,7 @@ export function buildRealtimeUrl(session: GuideSession): string {
 export async function stopGuide(sessionId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/v1/session/${encodeURIComponent(sessionId)}/stop`, {
     method: 'POST',
-    headers: telegramHeaders(),
+    headers: initDataHeaders(),
     signal: AbortSignal.timeout(env.apiRequestTimeoutMs),
   })
 

@@ -5,8 +5,10 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SophyGo</title>
-    <!-- async: недоступный telegram.org не должен блокировать рендер приложения -->
+    <!-- async: недоступный CDN мессенджера не должен блокировать рендер -->
     <script async data-telegram-sdk src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- MAX Bridge: window.WebApp с initData для мини-приложения MAX -->
+    <script async data-max-sdk src="https://st.max.ru/js/max-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -2,7 +2,7 @@ import { RealtimeAudio, encodeBase64 } from '../audio/audioEngine'
 import { SileroVadGate } from '../audio/sileroVad'
 import { buildRealtimeUrl, createGuideSession, stopGuide, type GuideSession } from '../api/guide'
 import { sendPlaceOpen } from '../api/events'
-import { getTelegramInitData } from '../platform/telegram'
+import { getInitData } from '../platform/messenger'
 import { isDevAuthEnabled } from '../platform/devAuth'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
@@ -110,10 +110,10 @@ export class GuideClient {
     // В обычном браузере initData нет: разрешаем подключение только при
     // явно включённом dev-режиме (VITE_DEV_AUTH=true на frontend и
     // DEV_AUTH_USER_ID на backend).
-    if (!getTelegramInitData() && !isDevAuthEnabled()) {
+    if (!getInitData() && !isDevAuthEnabled()) {
       this.update({
         status: 'unavailable',
-        error: 'Голосовой Гид доступен только в Telegram',
+        error: 'Голосовой Гид доступен только в Telegram или MAX',
       })
       return
     }

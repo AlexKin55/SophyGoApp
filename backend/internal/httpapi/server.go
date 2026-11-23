@@ -13,8 +13,8 @@ import (
 	"github.com/sophygo/backend/internal/clientlog"
 	"github.com/sophygo/backend/internal/events"
 	"github.com/sophygo/backend/internal/guide"
+	"github.com/sophygo/backend/internal/messenger"
 	"github.com/sophygo/backend/internal/realtime"
-	"github.com/sophygo/backend/internal/telegram"
 )
 
 const (
@@ -26,13 +26,15 @@ const (
 type Deps struct {
 	Store         *events.Store
 	Guide         *guide.Manager
-	Telegram      *telegram.Verifier
+	Messenger     messenger.Verifier
 	Realtime      realtime.Config
 	Logger        *slog.Logger
 	CORSOrigins   []string
 	DevAuthUserID int64
 	EventLimits   events.Limits
 	MarkerScale   float64
+	// StaticDir — каталог собранного frontend. Пустая строка — не отдавать статику.
+	StaticDir string
 
 	MaxBodyBytes       int64
 	RequestTimeout     time.Duration
@@ -52,7 +54,7 @@ type Deps struct {
 type Server struct {
 	store              *events.Store
 	guide              *guide.Manager
-	telegram           *telegram.Verifier
+	messenger          messenger.Verifier
 	realtime           realtime.Config
 	logger             *slog.Logger
 	allowedOrigins     map[string]struct{}
@@ -61,6 +63,7 @@ type Server struct {
 	devAuthUserID      int64
 	eventLimits        events.Limits
 	markerScale        float64
+	static             http.Handler
 
 	maxBodyBytes       int64
 	requestTimeout     time.Duration
@@ -90,10 +93,10 @@ func New(deps Deps) *Server {
 		allowed[origin] = struct{}{}
 	}
 
-	return &Server{
+	server := &Server{
 		store:              deps.Store,
 		guide:              deps.Guide,
-		telegram:           deps.Telegram,
+		messenger:          deps.Messenger,
 		realtime:           deps.Realtime,
 		logger:             deps.Logger,
 		allowedOrigins:     allowed,
@@ -116,6 +119,12 @@ func New(deps Deps) *Server {
 		clientLogRatePerMinute: positiveInt(deps.ClientLogRatePerMinute, 120),
 		clientLogWindows:       make(map[string]*clientLogWindow),
 	}
+
+	if deps.StaticDir != "" {
+		server.static = newStaticHandler(deps.StaticDir)
+	}
+
+	return server
 }
 
 func positiveInt64(value, fallback int64) int64 {
@@ -172,6 +181,9 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/api/v1/events", s.handleRecentEvents)
 		r.Post("/api/v1/client-logs", s.handleClientLogs)
 	})
+
+	// Неизвестные пути отдают SPA, если собран frontend.
+	router.NotFound(s.handleNotFound)
 
 	return router
 }

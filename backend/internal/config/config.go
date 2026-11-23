@@ -17,6 +17,9 @@ type Config struct {
 	Addr string
 	// EventsFile — путь к JSONL-файлу, куда дописываются события.
 	EventsFile string
+	// StaticDir — каталог собранного frontend (dist). Пустая строка — статика
+	// не отдаётся, backend работает только как API.
+	StaticDir string
 	// CORSOrigins — список разрешённых Origin для браузерных запросов.
 	CORSOrigins []string
 	// MaxRecentEvents — сколько последних событий хранить в памяти.
@@ -83,6 +86,10 @@ type Config struct {
 	TelegramBotToken string
 	// TelegramInitDataMaxAge — максимальный возраст initData.
 	TelegramInitDataMaxAge time.Duration
+	// MaxBotToken — токен бота MAX для проверки initData.
+	MaxBotToken string
+	// MaxInitDataMaxAge — максимальный возраст initData MAX.
+	MaxInitDataMaxAge time.Duration
 	// DevAuthUserID — только для локальной отладки: если задан, запросы
 	// без initData считаются пользователем с этим Telegram id.
 	DevAuthUserID int64
@@ -168,6 +175,8 @@ const (
 	defaultEventMaxAge          = 30 * 24 * time.Hour
 
 	defaultTelegramInitDataAge = 24 * time.Hour
+	// MAX рекомендует проверять свежесть initData в пределах часа.
+	defaultMaxInitDataAge = time.Hour
 
 	defaultYandexRealtimeURL   = "wss://ai.api.cloud.yandex.net/v1/realtime"
 	defaultYandexRealtimeModel = "speech-realtime-deepseek-v4-flash"
@@ -193,9 +202,15 @@ func Load() (Config, error) {
 	// окружения имеют приоритет, поэтому в production файл можно не создавать.
 	_, _ = envfile.LoadNearest(".env")
 
+	addr, addrErr := resolveAddr()
+	if addrErr != nil {
+		return Config{}, addrErr
+	}
+
 	cfg := Config{
-		Addr:                   getEnv("HTTP_ADDR", defaultAddr),
+		Addr:                   addr,
 		EventsFile:             getEnv("EVENTS_FILE", defaultEventsFile),
+		StaticDir:              strings.TrimSpace(os.Getenv("STATIC_DIR")),
 		CORSOrigins:            splitList(getEnv("CORS_ORIGINS", defaultCORSOrigins)),
 		MaxRecentEvents:        defaultMaxRecentEvents,
 		MarkerScale:            defaultMarkerScale,
@@ -235,6 +250,8 @@ func Load() (Config, error) {
 		EventMaxAge:            defaultEventMaxAge,
 		TelegramBotToken:       strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
 		TelegramInitDataMaxAge: defaultTelegramInitDataAge,
+		MaxBotToken:            strings.TrimSpace(os.Getenv("MAX_BOT_TOKEN")),
+		MaxInitDataMaxAge:      defaultMaxInitDataAge,
 		YandexAPIKey:           strings.TrimSpace(os.Getenv("YANDEX_API_KEY")),
 		YandexFolderID:         strings.TrimSpace(os.Getenv("YANDEX_FOLDER_ID")),
 		YandexRealtimeURL:      getEnv("YANDEX_REALTIME_URL", defaultYandexRealtimeURL),
@@ -368,6 +385,9 @@ func Load() (Config, error) {
 	if cfg.TelegramInitDataMaxAge, err = durationEnv("TELEGRAM_INIT_DATA_MAX_AGE", cfg.TelegramInitDataMaxAge); err != nil {
 		return Config{}, err
 	}
+	if cfg.MaxInitDataMaxAge, err = durationEnv("MAX_INIT_DATA_MAX_AGE", cfg.MaxInitDataMaxAge); err != nil {
+		return Config{}, err
+	}
 	if cfg.SessionTTL, err = durationEnv("SESSION_TTL", cfg.SessionTTL); err != nil {
 		return Config{}, err
 	}
@@ -420,6 +440,24 @@ func Load() (Config, error) {
 // RealtimeConfigured сообщает, заданы ли креды для Yandex Realtime API.
 func (c Config) RealtimeConfigured() bool {
 	return c.YandexAPIKey != "" && c.YandexFolderID != ""
+}
+
+// resolveAddr выбирает адрес прослушивания.
+//
+// Yandex Serverless Containers передают порт в переменной PORT и требуют
+// слушать 0.0.0.0: иначе запросы извне не дойдут. PORT имеет приоритет,
+// HTTP_ADDR используется для локального запуска.
+func resolveAddr() (string, error) {
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port == "" {
+		return getEnv("HTTP_ADDR", defaultAddr), nil
+	}
+
+	value, err := strconv.Atoi(port)
+	if err != nil || value < 1 || value > 65535 {
+		return "", fmt.Errorf("PORT должен быть числом от 1 до 65535, получено %q", port)
+	}
+	return "0.0.0.0:" + port, nil
 }
 
 func getEnv(key, fallback string) string {

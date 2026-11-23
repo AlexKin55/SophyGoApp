@@ -1,0 +1,8 @@
+{
+   "id": "ajemjj54tlgdns0pe6hj",
+   "service_account_id": "ajevf69rkc2a8n6b70uk",
+   "created_at": "2026-11-23T10:29:59.047947614Z",
+   "key_algorithm": "RSA_2048",
+   "public_key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApfmxSWPfEIJqFN/VYu2o\nmVubZg6/E5pZL2hiqZcaPwWmfeByO6xQpyWAQfVFY7jui6LW1QAbXkveZqVDvUG2\nLfjMWAhkBWKVe/bec/rb3Wmi9XZfA3Gu2uWZmHVVv8jHrmOHSkQptpbbR5WnaZeW\nEDIZRfGKO2Ym2kSj8N7A+HELIBiXaFzIGJF6dQPDauE2MIa9P1GvIPjUMJiHM+u4\nceP4JzvadymRkSJGePcosM2ls3u37fX89htZO1lj82f0gRiUKvhhynofXv7V7nqY\nY2xeTgJH7Vrty9XTuSZozRoOLnbSbQzAmfIVN8qZWfUCfPwm6XfC26eo8L1UqyQV\nXQIDAQAB\n-----END PUBLIC KEY-----\n",
+   "private_key": "PLEASE DO NOT REMOVE THIS LINE! Yandex.Cloud SA Key ID ADD YOUR PRIVATE KEY"
+}

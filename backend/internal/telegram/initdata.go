@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -16,40 +15,28 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sophygo/backend/internal/messenger"
 )
 
 // telegramPublicKeyHex — публичный ключ Telegram для проверки поля signature.
 const telegramPublicKeyHex = "e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d"
 
+// Ошибки пакета — алиасы общих ошибок messenger: вызывающий код
+// не должен зависеть от конкретного мессенджера.
 var (
-	// ErrNotConfigured — сервер не знает токен бота и не может проверить подпись.
-	ErrNotConfigured = errors.New("telegram: TELEGRAM_BOT_TOKEN не задан")
-	// ErrMissing — initData не передан.
-	ErrMissing = errors.New("telegram: initData не передан")
-	// ErrMalformed — initData имеет неверный формат.
-	ErrMalformed = errors.New("telegram: некорректный initData")
-	// ErrInvalidSignature — подпись не совпадает.
-	ErrInvalidSignature = errors.New("telegram: неверная подпись initData")
-	// ErrExpired — initData устарел.
-	ErrExpired = errors.New("telegram: initData устарел")
+	ErrNotConfigured    = messenger.ErrNotConfigured
+	ErrMissing          = messenger.ErrMissing
+	ErrMalformed        = messenger.ErrMalformed
+	ErrInvalidSignature = messenger.ErrInvalidSignature
+	ErrExpired          = messenger.ErrExpired
 )
 
 // User — данные пользователя из initData.
-type User struct {
-	ID           int64  `json:"id"`
-	FirstName    string `json:"first_name"`
-	LastName     string `json:"last_name"`
-	Username     string `json:"username"`
-	LanguageCode string `json:"language_code"`
-	IsPremium    bool   `json:"is_premium"`
-}
+type User = messenger.User
 
 // InitData — проверенные данные Telegram Mini App.
-type InitData struct {
-	User     User
-	AuthDate time.Time
-	QueryID  string
-}
+type InitData = messenger.InitData
 
 // Verifier проверяет подпись initData.
 type Verifier struct {
@@ -70,13 +57,18 @@ func NewVerifier(botToken string, maxAge time.Duration) *Verifier {
 	}
 }
 
+// Name возвращает имя мессенджера.
+func (v *Verifier) Name() string {
+	return "telegram"
+}
+
 // Configured сообщает, можно ли проверять initData.
 func (v *Verifier) Configured() bool {
 	return v.botToken != ""
 }
 
 // Verify проверяет подпись и возвращает данные пользователя.
-func (v *Verifier) Verify(raw string) (*InitData, error) {
+func (v *Verifier) Verify(raw string) (*messenger.InitData, error) {
 	if !v.Configured() {
 		return nil, ErrNotConfigured
 	}
@@ -146,7 +138,7 @@ func (v *Verifier) Verify(raw string) (*InitData, error) {
 		return nil, fmt.Errorf("%w: отсутствует user", ErrMalformed)
 	}
 
-	var user User
+	var user messenger.User
 	if err := json.Unmarshal([]byte(userRaw), &user); err != nil {
 		return nil, fmt.Errorf("%w: user не JSON", ErrMalformed)
 	}
@@ -154,7 +146,7 @@ func (v *Verifier) Verify(raw string) (*InitData, error) {
 		return nil, fmt.Errorf("%w: некорректный user.id", ErrMalformed)
 	}
 
-	return &InitData{
+	return &messenger.InitData{
 		User:     user,
 		AuthDate: authDate,
 		QueryID:  values.Get("query_id"),

@@ -3,7 +3,12 @@
 
 Использование:
     python3 scripts/build_backend.py
+    python3 scripts/build_backend.py --api=max
     python3 scripts/build_backend.py --output backend/bin/sophygo-api
+
+--api выбирает мессенджер, под который собирается бинарник:
+telegram (по умолчанию) или max. Значение вшивается в бинарник
+через -ldflags "-X main.apiKind=...".
 
 Требуется Go (по умолчанию /usr/local/go/bin добавляется в PATH).
 """
@@ -28,6 +33,12 @@ from _common import (
 def main() -> int:
     parser = argparse.ArgumentParser(description="Сборка backend SophyGo")
     parser.add_argument(
+        "--api",
+        choices=("telegram", "max"),
+        default="telegram",
+        help="мессенджер для сборки: telegram (по умолчанию) или max",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=BACKEND_BINARY,
@@ -47,9 +58,15 @@ def main() -> int:
     command = [go, "build"]
     if not args.no_trimpath:
         command.append("-trimpath")
-    command.extend(["-o", str(output), "./cmd/server"])
+    command.extend([
+        "-ldflags",
+        f"-X main.apiKind={args.api}",
+        "-o",
+        str(output),
+        "./cmd/server",
+    ])
 
-    log(f"сборка backend: {' '.join(command)}")
+    log(f"сборка backend (api={args.api}): {' '.join(command)}")
     try:
         result = subprocess.run(command, cwd=str(BACKEND_DIR), env=build_env(), check=False)
     except OSError as error:

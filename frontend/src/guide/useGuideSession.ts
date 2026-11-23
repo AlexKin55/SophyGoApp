@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { GuideClient, initialGuideState, type GuideState } from './guideClient'
-import { getTelegramInitData, initTelegram, loadTelegramSdk } from '../platform/telegram'
+import { getInitData, initMessenger, loadMessengerSdk } from '../platform/messenger'
 import { isDevAuthEnabled } from '../platform/devAuth'
 import type { Place } from '../places/places'
 
@@ -25,17 +25,17 @@ export function useGuideSession(): GuideController {
     const devAuth = isDevAuthEnabled()
 
     void (async () => {
-      // В обычном браузере SDK Telegram не нужен и может быть недоступен.
+      // В обычном браузере SDK мессенджера не нужен и может быть недоступен.
       if (!devAuth) {
-        await loadTelegramSdk()
+        await loadMessengerSdk()
       }
       if (cancelled) return
 
-      initTelegram()
+      initMessenger()
 
-      // В Telegram сразу создаём сессию. В обычном браузере подключаемся
+      // В Telegram/MAX сразу создаём сессию. В обычном браузере подключаемся
       // только при включённом dev-режиме (VITE_DEV_AUTH=true).
-      if (getTelegramInitData() || devAuth) {
+      if (getInitData() || devAuth) {
         void client.connect()
       }
     })()

@@ -69,7 +69,7 @@ func newTestEnvWithConfig(t *testing.T, realtimeConfig realtime.Config, devAuthU
 	server := New(Deps{
 		Store:         store,
 		Guide:         manager,
-		Telegram:      telegram.NewVerifier(testBotToken, 24*time.Hour),
+		Messenger:     telegram.NewVerifier(testBotToken, 24*time.Hour),
 		Realtime:      realtimeConfig,
 		Logger:        logger,
 		CORSOrigins:   []string{allowedOrigin},

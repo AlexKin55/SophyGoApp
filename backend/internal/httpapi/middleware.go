@@ -83,7 +83,10 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		if origin != "" && s.isOriginAllowed(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data")
+			w.Header().Set(
+				"Access-Control-Allow-Headers",
+				"Content-Type, X-Init-Data, X-Telegram-Init-Data, X-Max-Init-Data",
+			)
 			w.Header().Set("Access-Control-Max-Age", "600")
 		}
 

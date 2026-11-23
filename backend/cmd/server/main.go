@@ -20,9 +20,16 @@ import (
 	"github.com/sophygo/backend/internal/events"
 	"github.com/sophygo/backend/internal/guide"
 	"github.com/sophygo/backend/internal/httpapi"
+	"github.com/sophygo/backend/internal/max"
+	"github.com/sophygo/backend/internal/messenger"
 	"github.com/sophygo/backend/internal/realtime"
 	"github.com/sophygo/backend/internal/telegram"
 )
+
+// apiKind задаётся при сборке: -ldflags "-X main.apiKind=max".
+// Значение telegram собирает бинарник для Telegram Mini App,
+// max — для мини-приложения MAX.
+var apiKind = "telegram"
 
 func main() {
 	cfg, err := config.Load()
@@ -122,9 +129,14 @@ func run(logger *slog.Logger, cfg config.Config) error {
 		MaxAge:          cfg.EventMaxAge,
 	}
 
-	verifier := telegram.NewVerifier(cfg.TelegramBotToken, cfg.TelegramInitDataMaxAge)
+	verifier, err := newVerifier(apiKind, cfg)
+	if err != nil {
+		return err
+	}
 	if !verifier.Configured() {
-		logger.Warn("TELEGRAM_BOT_TOKEN не задан: запросы с initData будут отклонены")
+		logger.Warn("токен бота не задан: запросы с initData будут отклонены",
+			"messenger", verifier.Name(),
+		)
 	}
 
 	realtimeConfig := realtime.Config{
@@ -156,13 +168,14 @@ func run(logger *slog.Logger, cfg config.Config) error {
 		Handler: httpapi.New(httpapi.Deps{
 			Store:                  store,
 			Guide:                  guideManager,
-			Telegram:               verifier,
+			Messenger:              verifier,
 			Realtime:               realtimeConfig,
 			Logger:                 logger,
 			CORSOrigins:            cfg.CORSOrigins,
 			DevAuthUserID:          cfg.DevAuthUserID,
 			EventLimits:            eventLimits,
 			MarkerScale:            cfg.MarkerScale,
+			StaticDir:              cfg.StaticDir,
 			MaxBodyBytes:           cfg.HTTPMaxBodyBytes,
 			RequestTimeout:         cfg.HTTPRequestTimeout,
 			EventsDefaultLimit:     cfg.EventsDefaultLimit,
@@ -186,7 +199,9 @@ func run(logger *slog.Logger, cfg config.Config) error {
 		logger.Info("http server started",
 			"addr", cfg.Addr,
 			"events_file", cfg.EventsFile,
+			"static_dir", cfg.StaticDir,
 			"cors_origins", cfg.CORSOrigins,
+			"messenger", verifier.Name(),
 			"realtime_model", cfg.YandexRealtimeModel,
 			"realtime_configured", cfg.RealtimeConfigured(),
 		)
@@ -215,4 +230,23 @@ func run(logger *slog.Logger, cfg config.Config) error {
 
 	logger.Info("http server stopped gracefully")
 	return nil
+}
+
+// newVerifier выбирает провайдера мессенджера.
+//
+// Значение apiKind задаётся при сборке (--api=telegram|max) и может быть
+// переопределено переменной MESSENGER_API для локальной отладки.
+func newVerifier(kind string, cfg config.Config) (messenger.Verifier, error) {
+	if override := strings.TrimSpace(os.Getenv("MESSENGER_API")); override != "" {
+		kind = override
+	}
+
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "", "telegram":
+		return telegram.NewVerifier(cfg.TelegramBotToken, cfg.TelegramInitDataMaxAge), nil
+	case "max":
+		return max.NewVerifier(cfg.MaxBotToken, cfg.MaxInitDataMaxAge), nil
+	default:
+		return nil, fmt.Errorf("неизвестный API %q: ожидается telegram или max", kind)
+	}
 }
