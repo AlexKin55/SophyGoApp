@@ -90,10 +90,22 @@ func (v *Verifier) Verify(raw string) (*InitData, error) {
 		return nil, fmt.Errorf("%w: отсутствует hash", ErrMalformed)
 	}
 
+	normalizedHash := strings.ToLower(hash)
+
 	dataCheckString := buildDataCheckString(values)
 	expected := sign(v.botToken, dataCheckString)
+	valid := hmac.Equal([]byte(expected), []byte(normalizedHash))
 
-	if !hmac.Equal([]byte(expected), []byte(strings.ToLower(hash))) {
+	if !valid {
+		// В новых клиентах Telegram в initData появилось поле signature.
+		// hash вычисляется до добавления signature, поэтому проверяем
+		// также data-check-string без этого поля.
+		withoutSignature := buildDataCheckString(values, true)
+		expectedWithoutSignature := sign(v.botToken, withoutSignature)
+		valid = hmac.Equal([]byte(expectedWithoutSignature), []byte(normalizedHash))
+	}
+
+	if !valid {
 		return nil, ErrInvalidSignature
 	}
 
@@ -136,10 +148,12 @@ func (v *Verifier) Verify(raw string) (*InitData, error) {
 	}, nil
 }
 
-func buildDataCheckString(values url.Values) string {
+func buildDataCheckString(values url.Values, excludeSignature ...bool) string {
+	skipSignature := len(excludeSignature) > 0 && excludeSignature[0]
+
 	keys := make([]string, 0, len(values))
 	for key := range values {
-		if key == "hash" {
+		if key == "hash" || (skipSignature && key == "signature") {
 			continue
 		}
 		keys = append(keys, key)

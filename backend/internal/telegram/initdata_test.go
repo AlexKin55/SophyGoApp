@@ -37,6 +37,33 @@ func testUser() User {
 	}
 }
 
+func TestVerifyValidInitDataWithSignatureField(t *testing.T) {
+	now := time.Now().UTC()
+	verifier := NewVerifier(testBotToken, 24*time.Hour)
+	verifier.now = func() time.Time { return now }
+
+	rawUser, err := json.Marshal(testUser())
+	if err != nil {
+		t.Fatalf("не удалось сериализовать user: %v", err)
+	}
+
+	values := url.Values{}
+	values.Set("query_id", "AAHdF6IQAAAAAN0XohDhrOrc")
+	values.Set("user", string(rawUser))
+	values.Set("auth_date", strconv.FormatInt(now.Add(-time.Minute).Unix(), 10))
+	values.Set("signature", "base64url-signature")
+	// Telegram вычисляет hash до добавления поля signature.
+	values.Set("hash", sign(testBotToken, buildDataCheckString(values, true)))
+
+	initData, err := verifier.Verify(values.Encode())
+	if err != nil {
+		t.Fatalf("ожидали успешную проверку с полем signature, получили %v", err)
+	}
+	if initData.User.ID != 279058397 {
+		t.Errorf("user.id = %d, ожидали 279058397", initData.User.ID)
+	}
+}
+
 func TestVerifyValidInitData(t *testing.T) {
 	now := time.Now().UTC()
 	verifier := NewVerifier(testBotToken, 24*time.Hour)
