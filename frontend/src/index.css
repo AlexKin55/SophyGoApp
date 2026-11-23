@@ -649,18 +649,52 @@ body,
   }
 }
 
-.geo-error {
+.geo-notice {
   position: absolute;
-  top: 12px;
+  top: 64px;
   left: 12px;
   right: 12px;
-  background: #fee2e2;
-  color: #991b1b;
-  padding: 10px 14px;
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fdba74;
+  padding: 10px 12px;
+  border-radius: 10px;
   font-size: 13px;
+  line-height: 1.35;
   z-index: 60;
-  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.geo-notice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.geo-notice-hint {
+  font-size: 11px;
+  color: #b45309;
+}
+
+.geo-notice-retry {
+  flex: 0 0 auto;
+  border: 1px solid #fb923c;
+  background: #fff;
+  color: #9a3412;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.geo-notice-retry:hover {
+  background: #ffedd5;
 }
 
 .place-card {

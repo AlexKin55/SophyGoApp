@@ -103,7 +103,7 @@ function App() {
 
   const guide = useGuideSession()
   const handleGuidePlaceOpen = guide.handlePlaceOpen
-  const { position, error, isSupported } = useGeolocation()
+  const { position, error, errorCode, retry } = useGeolocation()
 
   // Округляем до ~100 м: не дёргаем Nominatim на каждый тик GPS.
   const geocodeLat = position ? Math.round(position.latitude * env.geolocation.roundFactor) / env.geolocation.roundFactor : null
@@ -358,9 +358,19 @@ function App() {
         −
       </button>
 
-      {!isSupported && (
-        <div className="geo-error">
-          Геолокация не поддерживается браузером
+      {error && (
+        <div className="geo-notice" role="status">
+          <div className="geo-notice-text">
+            <span>{error}</span>
+            {errorCode === 'permission-denied' && (
+              <span className="geo-notice-hint">
+                iPhone: Настройки → Telegram → Геопозиция. Android: Настройки → Приложения → Telegram → Разрешения.
+              </span>
+            )}
+          </div>
+          <button type="button" className="geo-notice-retry" onClick={retry}>
+            Повторить
+          </button>
         </div>
       )}
 
@@ -423,7 +433,6 @@ function App() {
               active={guideActive}
               busy={guideBusy}
               error={guide.error}
-              geoError={error}
               transcript={guide.transcript}
               userTranscript={guide.userTranscript}
               onToggleTalk={handleToggleTalk}

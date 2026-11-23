@@ -4,7 +4,6 @@ interface GuideDialogProps {
   active: boolean
   busy: boolean
   error: string | null
-  geoError: string | null
   transcript: string
   userTranscript: string
   onToggleTalk: () => void
@@ -14,7 +13,6 @@ export function GuideDialog({
   active,
   busy,
   error,
-  geoError,
   transcript,
   userTranscript,
   onToggleTalk,
@@ -23,7 +21,7 @@ export function GuideDialog({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [transcript, userTranscript, error, geoError])
+  }, [transcript, userTranscript, error])
 
   const hasMessages = Boolean(transcript || userTranscript)
 
@@ -39,7 +37,7 @@ export function GuideDialog({
       </button>
 
       <div className="guide-dialog-messages">
-        {!hasMessages && !error && !geoError && (
+        {!hasMessages && !error && (
           <p className="guide-dialog-empty">
             Выберите объект на карте — Гид сам начнёт рассказ. Или нажмите «Поговорим».
           </p>
@@ -60,7 +58,6 @@ export function GuideDialog({
         )}
 
         {error && <ErrorBubble text={error} />}
-        {geoError && <ErrorBubble text={geoError} />}
 
         <div ref={bottomRef} />
       </div>
