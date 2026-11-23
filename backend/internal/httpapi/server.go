@@ -179,6 +179,9 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/v1/session/{sessionID}/stop", s.handleStopSession)
 		r.Post("/api/v1/events/place-open", s.handlePlaceOpen)
 		r.Get("/api/v1/events", s.handleRecentEvents)
+		r.Get("/api/v1/wiki/proxy", s.handleWikiProxy)
+		r.Post("/api/v1/wiki/proxy", s.handleWikiProxy)
+		r.Get("/api/v1/photos/proxy", s.handlePhotoProxy)
 		r.Post("/api/v1/client-logs", s.handleClientLogs)
 	})
 

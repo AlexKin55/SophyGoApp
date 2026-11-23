@@ -69,7 +69,9 @@ func (h *staticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *staticHandler) serveFile(w http.ResponseWriter, r *http.Request, filePath string) {
 	switch {
 	case strings.HasSuffix(filePath, ".html"):
-		w.Header().Set("Cache-Control", "no-cache")
+		// index.html не кэшируем: после деплоя MAX WebView должен
+		// подхватить новую ссылку на JS-бандл.
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
 	case strings.Contains(filePath, string(os.PathSeparator)+"assets"+string(os.PathSeparator)):
 		// Имена файлов в assets содержат хеш, поэтому кэшируем надолго.
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { photoProxyUrl } from '../places/photoProxy'
 
 interface PlacePhotoCarouselProps {
   name: string
@@ -11,6 +12,7 @@ interface PlacePhotoCarouselProps {
  */
 export function PlacePhotoCarousel({ name, images }: PlacePhotoCarouselProps) {
   const [failed, setFailed] = useState<string[]>([])
+  const [proxied, setProxied] = useState<Record<string, string>>({})
   const [index, setIndex] = useState(0)
   const trackRef = useRef<HTMLDivElement | null>(null)
 
@@ -43,6 +45,13 @@ export function PlacePhotoCarousel({ name, images }: PlacePhotoCarouselProps) {
   }
 
   const handleError = (src: string) => {
+    // В MAX первая ошибка — пробуем backend-прокси, вторая — убираем фото.
+    // В Telegram прокси не используется, поведение прежнее.
+    const proxy = proxied[src] ? null : photoProxyUrl(src)
+    if (proxy) {
+      setProxied((prev) => ({ ...prev, [src]: proxy }))
+      return
+    }
     setFailed((prev) => (prev.includes(src) ? prev : [...prev, src]))
   }
 
@@ -60,7 +69,12 @@ export function PlacePhotoCarousel({ name, images }: PlacePhotoCarouselProps) {
       <div className="photo-track" ref={trackRef} onScroll={handleScroll}>
         {photos.map((src) => (
           <div className="photo-slide" key={src}>
-            <img src={src} alt={name} decoding="async" onError={() => handleError(src)} />
+            <img
+              src={proxied[src] ?? src}
+              alt={name}
+              decoding="async"
+              onError={() => handleError(src)}
+            />
           </div>
         ))}
       </div>

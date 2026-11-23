@@ -14,11 +14,19 @@ const API_BASE_URL = env.apiBaseUrl
 const PLACE_OPEN_PATH = '/api/v1/events/place-open'
 const SESSION_STORAGE_KEY = 'sophygo.sessionId'
 
+export type PlaceOpenFailureReason =
+  | 'no_init_data'
+  | 'no_session'
+  | 'realtime_not_connected'
+  | 'session_not_found'
+  | 'send_failed'
+
 export interface PlaceOpenResult {
   id: string
   receivedAt: string
   sessionId?: string
   delivered: boolean
+  reason?: PlaceOpenFailureReason
 }
 
 function createSessionId(): string {

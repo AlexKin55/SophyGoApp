@@ -1,5 +1,6 @@
 import { env } from '../config/env'
 import { logger } from '../config/logger'
+import { getMessengerKind } from '../platform/messenger'
 import type { Place } from './places'
 
 export interface MapBounds {
@@ -47,6 +48,8 @@ interface CategoryRule {
 }
 
 const WIKIPEDIA_API = env.places.wikipediaApiUrl
+/** Backend-прокси Wikipedia: используется, если прямой доступ заблокирован. */
+const WIKIPEDIA_PROXY = `${env.apiBaseUrl}/api/v1/wiki/proxy`
 
 const MAX_RESULTS = env.places.maxResults
 const GEOSEARCH_LIMIT = env.places.geosearchLimit
@@ -471,16 +474,15 @@ function fetchWikipedia<T>(
   params: Record<string, string>,
   signal?: AbortSignal
 ): Promise<T> {
-  return fetchJson<T>(
-    WIKIPEDIA_API,
-    'application/json',
-    signal,
-    new URLSearchParams({ ...params, format: 'json', origin: '*' })
-  )
+  const body = new URLSearchParams({ ...params, format: 'json', origin: '*' })
+  return fetchJson<T>(WIKIPEDIA_API, 'application/json', signal, body).catch((error) => {
+    if (signal?.aborted || getMessengerKind() !== 'max') throw error
+    return fetchJson<T>(WIKIPEDIA_PROXY, 'application/json', signal, body)
+  })
 }
 
-function buildGeosearchUrl(bounds: MapBounds): string {
-  const url = new URL(WIKIPEDIA_API)
+function buildGeosearchUrl(bounds: MapBounds, base = WIKIPEDIA_API): string {
+  const url = new URL(base)
   url.searchParams.set('action', 'query')
   url.searchParams.set('generator', 'geosearch')
   url.searchParams.set('ggsbbox', `${bounds.north}|${bounds.west}|${bounds.south}|${bounds.east}`)
@@ -498,7 +500,7 @@ async function fetchGeoPages(
   bounds: MapBounds,
   signal?: AbortSignal
 ): Promise<GeoPage[]> {
-  const data = await fetchJson<{
+  type GeoResponse = {
     query?: {
       pages?: Record<
         string,
@@ -510,7 +512,20 @@ async function fetchGeoPages(
         }
       >
     }
-  }>(buildGeosearchUrl(bounds), 'application/json', signal)
+  }
+
+  const data = await fetchJson<GeoResponse>(
+    buildGeosearchUrl(bounds),
+    'application/json',
+    signal
+  ).catch((error) => {
+    if (signal?.aborted || getMessengerKind() !== 'max') throw error
+    return fetchJson<GeoResponse>(
+      buildGeosearchUrl(bounds, WIKIPEDIA_PROXY),
+      'application/json',
+      signal
+    )
+  })
 
   const pages: GeoPage[] = []
 

@@ -10,6 +10,7 @@ import type { Place } from './places/places'
 import { GuideDialog } from './components/GuideDialog'
 import { PlacePhotoCarousel } from './components/PlacePhotoCarousel'
 import { useGuideSession } from './guide/useGuideSession'
+import { photoProxyUrl } from './places/photoProxy'
 import { env } from './config/env'
 import { logger } from './config/logger'
 
@@ -342,7 +343,17 @@ function App() {
         image.style.height = '100%'
         image.style.objectFit = 'cover'
         image.style.display = 'block'
-        image.onerror = showEmojiFallback
+        let proxyTried = false
+        image.onerror = () => {
+          // В MAX пробуем прокси; в Telegram прокси не используется.
+          const proxy = proxyTried ? null : photoProxyUrl(photo)
+          if (proxy) {
+            proxyTried = true
+            image.src = proxy
+            return
+          }
+          showEmojiFallback()
+        }
         markerElement.appendChild(image)
       } else {
         showEmojiFallback()

@@ -1,7 +1,7 @@
 import { RealtimeAudio, encodeBase64 } from '../audio/audioEngine'
 import { SileroVadGate } from '../audio/sileroVad'
 import { buildRealtimeUrl, createGuideSession, stopGuide, type GuideSession } from '../api/guide'
-import { sendPlaceOpen } from '../api/events'
+import { sendPlaceOpen, type PlaceOpenFailureReason } from '../api/events'
 import { getInitData } from '../platform/messenger'
 import { isDevAuthEnabled } from '../platform/devAuth'
 import { env } from '../config/env'
@@ -168,7 +168,7 @@ export class GuideClient {
         this.session = { ...this.session, sessionId: result.sessionId }
       }
       if (result && !result.delivered) {
-        this.update({ error: 'Гид не получил объект. Попробуйте ещё раз.' })
+        this.update({ error: placeOpenErrorMessage(result.reason) })
       }
     } catch (error) {
       logger.error('place open failed', { placeId: place.id, error: errorMessage(error) })
@@ -654,6 +654,21 @@ function micErrorInfo(error: unknown): MicErrorInfo | null {
   }
 
   return null
+}
+
+function placeOpenErrorMessage(reason?: PlaceOpenFailureReason): string {
+  switch (reason) {
+    case 'no_init_data':
+      return 'Нет initData MAX. Откройте мини-приложение через бота.'
+    case 'no_session':
+      return 'Сессия Гида не создана. Перезапустите мини-приложение.'
+    case 'realtime_not_connected':
+      return 'Гид не подключён к Yandex Realtime. Проверьте соединение.'
+    case 'session_not_found':
+      return 'Сессия Гида истекла. Перезапустите мини-приложение.'
+    default:
+      return 'Гид не получил объект. Попробуйте ещё раз.'
+  }
 }
 
 function errorMessage(error: unknown): string {

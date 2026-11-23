@@ -62,6 +62,8 @@ type placeOpenResponse struct {
 	ReceivedAt time.Time `json:"receivedAt"`
 	SessionID  string    `json:"sessionId,omitempty"`
 	Delivered  bool      `json:"delivered"`
+	// Reason объясняет, почему объект не доставлен Гиду.
+	Reason string `json:"reason,omitempty"`
 }
 
 type recentEventsResponse struct {
@@ -178,16 +180,25 @@ func (s *Server) handlePlaceOpen(w http.ResponseWriter, r *http.Request) {
 	}
 
 	delivered := false
-	if initData != nil && sessionID != "" {
+	reason := ""
+	switch {
+	case initData == nil:
+		reason = "no_init_data"
+	case sessionID == "":
+		reason = "no_session"
+	default:
 		err := s.guide.SendPlacePrompt(r.Context(), sessionID, event.Place.Name, event.Place.Latitude, event.Place.Longitude)
 		switch {
 		case err == nil:
 			delivered = true
 		case errors.Is(err, guide.ErrNoRealtime):
+			reason = "realtime_not_connected"
 			s.logger.Info("place prompt skipped: realtime is not connected", "session_id", sessionID)
 		case errors.Is(err, guide.ErrSessionNotFound):
+			reason = "session_not_found"
 			s.logger.Info("place prompt skipped: session is gone", "session_id", sessionID)
 		default:
+			reason = "send_failed"
 			s.logger.Error("failed to send place prompt", "error", err, "session_id", sessionID)
 		}
 	}
@@ -207,6 +218,7 @@ func (s *Server) handlePlaceOpen(w http.ResponseWriter, r *http.Request) {
 		ReceivedAt: event.ReceivedAt,
 		SessionID:  sessionID,
 		Delivered:  delivered,
+		Reason:     reason,
 	})
 }
 

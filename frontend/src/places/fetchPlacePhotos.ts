@@ -1,8 +1,11 @@
 import { env } from '../config/env'
 import { logger } from '../config/logger'
+import { getMessengerKind } from '../platform/messenger'
 import type { Place } from './places'
 
 const WIKIPEDIA_API = env.places.wikipediaApiUrl
+/** Backend-прокси Wikipedia: только для MAX, где прямой доступ бывает закрыт. */
+const WIKIPEDIA_PROXY = `${env.apiBaseUrl}/api/v1/wiki/proxy`
 const PHOTO_WIDTH = 640
 /** Показываем все фото, которые отдала Wikipedia, но не больше шести. */
 const MAX_PHOTOS = 6
@@ -60,6 +63,21 @@ async function fetchWikipedia<T>(
   params: Record<string, string>,
   signal?: AbortSignal
 ): Promise<T> {
+  const body = new URLSearchParams({ ...params, format: 'json', origin: '*' })
+  try {
+    return await fetchWikipediaFrom<T>(WIKIPEDIA_API, body, signal)
+  } catch (error) {
+    // Прокси включаем только для MAX: в Telegram прямой запрос работает.
+    if (signal?.aborted || getMessengerKind() !== 'max') throw error
+    return fetchWikipediaFrom<T>(WIKIPEDIA_PROXY, body, signal)
+  }
+}
+
+async function fetchWikipediaFrom<T>(
+  endpoint: string,
+  body: URLSearchParams,
+  signal?: AbortSignal
+): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     const controller = new AbortController()
     const abortFromCaller = () => controller.abort()
@@ -68,13 +86,13 @@ async function fetchWikipedia<T>(
 
     try {
       // POST: длинные списки названий файлов не помещаются в URL.
-      const response = await fetch(WIKIPEDIA_API, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams({ ...params, format: 'json', origin: '*' }),
+        body,
         signal: controller.signal,
       })
 
