@@ -121,7 +121,7 @@ const (
 	defaultEventsFile      = "data/events.jsonl"
 	defaultCORSOrigins     = "http://localhost:5173,http://127.0.0.1:5173"
 	defaultMaxRecentEvents = 1000
-	defaultMarkerScale     = 1.5
+	defaultMarkerScale     = 3
 	defaultShutdownTimeout = 10 * time.Second
 
 	// Логирование по умолчанию выключено; включается LOGGING_ENABLED=true.

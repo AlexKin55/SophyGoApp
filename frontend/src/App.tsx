@@ -4,9 +4,11 @@ import 'leaflet/dist/leaflet.css'
 import { useGeolocation } from './geolocation/useGeolocation'
 import { useReverseGeocode } from './geolocation/useReverseGeocode'
 import { fetchTopPlaces } from './places/fetchTopPlaces'
+import { fetchPlacePhotos } from './places/fetchPlacePhotos'
 import { fetchMarkerScale } from './api/config'
 import type { Place } from './places/places'
 import { GuideDialog } from './components/GuideDialog'
+import { PlacePhotoCarousel } from './components/PlacePhotoCarousel'
 import { useGuideSession } from './guide/useGuideSession'
 import { env } from './config/env'
 import { logger } from './config/logger'
@@ -95,9 +97,9 @@ function App() {
   const placeMarkerRefs = useRef<Map<string, L.Marker>>(new Map())
   const loadTimerRef = useRef<number | null>(null)
   const loadAbortRef = useRef<AbortController | null>(null)
+  const placesRef = useRef<Place[]>([])
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
-  const [failedPhotoId, setFailedPhotoId] = useState<string | null>(null)
   const [places, setPlaces] = useState<Place[]>([])
   const [placesLoading, setPlacesLoading] = useState(false)
   const [placesError, setPlacesError] = useState<string | null>(null)
@@ -107,9 +109,42 @@ function App() {
   const handleGuidePlaceOpen = guide.handlePlaceOpen
   const { position, error, errorCode, retry } = useGeolocation()
 
+  const selectedPlaceId = selectedPlace?.id ?? null
+
   useEffect(() => {
     void fetchMarkerScale().then(setMarkerScale)
   }, [])
+
+  useEffect(() => {
+    placesRef.current = places
+  }, [places])
+
+  // При выборе объекта догружаем дополнительные фото (до шести).
+  // Первое фото из списка уже показано, остальные появятся по мере загрузки.
+  useEffect(() => {
+    if (!selectedPlaceId) return
+    const place = placesRef.current.find((item) => item.id === selectedPlaceId)
+    if (!place) return
+
+    const controller = new AbortController()
+    void fetchPlacePhotos(place, controller.signal)
+      .then((photos) => {
+        if (controller.signal.aborted) return
+        setSelectedPlace((current) =>
+          current && current.id === selectedPlaceId && photos.length > (current.images?.length ?? 0)
+            ? { ...current, images: photos }
+            : current
+        )
+      })
+      .catch((err: unknown) => {
+        logger.warn('не удалось догрузить фото объекта', {
+          place: place.name,
+          error: String(err),
+        })
+      })
+
+    return () => controller.abort()
+  }, [selectedPlaceId])
 
   // Округляем до ~100 м: не дёргаем Nominatim на каждый тик GPS.
   const geocodeLat = position ? Math.round(position.latitude * env.geolocation.roundFactor) / env.geolocation.roundFactor : null
@@ -272,7 +307,7 @@ function App() {
       const color = getCategoryColor(place.category)
       const emoji = getCategoryEmoji(place.category)
       const markerSize = Math.round(30 * markerScale)
-      const markerBorder = Math.max(2, Math.round(3 * markerScale))
+      const markerBorder = Math.max(1, Math.round((3 * markerScale) / 2))
       const markerFontSize = Math.round(14 * markerScale)
 
       const markerElement = document.createElement('div')
@@ -452,28 +487,18 @@ function App() {
 
         <div className="drawer-content">
           <div className="photo-pane">
-        {selectedPlace ? (
-          selectedPlace.images?.length && failedPhotoId !== selectedPlace.id ? (
-            <>
-              <img
-                src={selectedPlace.images[0]}
-                alt={selectedPlace.name}
-                onError={() => setFailedPhotoId(selectedPlace.id)}
+            {selectedPlace ? (
+              <PlacePhotoCarousel
+                key={selectedPlace.id}
+                name={selectedPlace.name}
+                images={selectedPlace.images ?? []}
               />
-              <div className="photo-pane-title">{selectedPlace.name}</div>
-            </>
-          ) : (
-            <div className="photo-pane-placeholder">
-              <span aria-hidden="true">📍</span>
-              <p>{selectedPlace.name}</p>
-            </div>
-          )
-        ) : (
-          <div className="photo-pane-placeholder">
-            <span aria-hidden="true">📍</span>
-            <p>{displayCity}</p>
-          </div>
-        )}
+            ) : (
+              <div className="photo-pane-placeholder">
+                <span aria-hidden="true">📍</span>
+                <p>{displayCity}</p>
+              </div>
+            )}
           </div>
 
           <div className="dialog-pane">

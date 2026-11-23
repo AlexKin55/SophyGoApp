@@ -107,7 +107,7 @@ CLIENT_LOG_FILE=/opt/sophygo/data/frontend-client.log
 `/opt/sophygo/backend/.env`:
 
 ```dotenv
-MARKER_SCALE=1.5
+MARKER_SCALE=3
 ```
 
 Frontend получает значение через `GET /api/v1/config` при загрузке,
@@ -115,12 +115,31 @@ Frontend получает значение через `GET /api/v1/config` пр�
 
 ```bash
 ssh SophyGo
-sudo sed -i 's/^MARKER_SCALE=.*/MARKER_SCALE=2/' /opt/sophygo/backend/.env
+sudo sed -i 's/^MARKER_SCALE=.*/MARKER_SCALE=4/' /opt/sophygo/backend/.env
 sudo systemctl restart sophygo-api
 ```
 
 Затем обновите страницу Mini App. `VITE_MARKER_SCALE` в frontend `.env` —
 только fallback на случай, если backend недоступен.
+
+## Запуск Mini App из Telegram
+
+Кнопка меню бота уже настроена: `web_app` с текстом «Открыть SophyGo».
+Telegram не умеет открывать Mini App автоматически при входе в чат —
+запуск всегда требует действия пользователя. Чтобы запуск был в один
+клик и работала прямая ссылка:
+
+1. откройте `@BotFather` → `/mybots` → `SophyGoBot` → **Bot Settings** →
+   **Configure Mini App** → **Enable Main Mini App**;
+2. укажите URL `https://sophygo.pro/`;
+3. проверьте результат: метод `getMe` должен вернуть
+   `"has_main_web_app": true`.
+
+После включения:
+
+- в чате с ботом появляется кнопка «Открыть приложение»;
+- ссылка `https://t.me/SophyGoBot/app` открывает SophyGo сразу,
+  без промежуточного экрана бота.
 
 ## Локальная разработка
 

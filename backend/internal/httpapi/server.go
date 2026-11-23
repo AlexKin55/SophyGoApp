@@ -101,7 +101,7 @@ func New(deps Deps) *Server {
 		realtimeConfigured: deps.Realtime.APIKey != "" && deps.Realtime.ModelURI != "",
 		devAuthUserID:      deps.DevAuthUserID,
 		eventLimits:        deps.EventLimits.WithDefaults(),
-		markerScale:        positiveFloat(deps.MarkerScale, 1.5),
+		markerScale:        positiveFloat(deps.MarkerScale, 3),
 		maxBodyBytes:       positiveInt64(deps.MaxBodyBytes, maxRequestBodyBytes),
 		requestTimeout:     positiveDuration(deps.RequestTimeout, requestTimeout),
 		eventsDefaultLimit: positiveInt(deps.EventsDefaultLimit, defaultEventsLimit),
