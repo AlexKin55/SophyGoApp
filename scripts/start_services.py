@@ -146,9 +146,26 @@ def main() -> int:
         action="store_true",
         help="сначала остановить выбранные сервисы",
     )
+    parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="запустить один сервис на месте процесса (для Docker/контейнеров)",
+    )
     args = parser.parse_args()
 
     targets = ["backend", "frontend"] if args.only == "both" else [args.only]
+
+    if args.foreground:
+        if len(targets) != 1:
+            fail("--foreground требует ровно один сервис: используйте --only backend")
+        name = targets[0]
+        command = backend_command() if name == "backend" else frontend_command()
+        cwd = BACKEND_DIR if name == "backend" else FRONTEND_DIR
+        log(f"запуск {name} в foreground: {' '.join(command)}")
+        os.chdir(cwd)
+        # Заменяем процесс Python на сервис: PID 1 и сигналы остаются корректными.
+        os.execvpe(command[0], command, build_env())
+        return 0  # недостижимо
 
     if "backend" in targets:
         ensure_backend_env()

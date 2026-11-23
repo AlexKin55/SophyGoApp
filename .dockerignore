@@ -1,13 +1,14 @@
 # Контекст Docker-сборки — корень проекта. Исключаем всё, что не нужно образу.
 .git
 .gitignore
-SophyGoContainer/key.json
 .codeassistantignore
 .idea
 .vscode
 
-# Локальные секреты и runtime-данные
-backend/.env
+# backend/.env и SophyGoContainer/key.json намеренно НЕ исключаются:
+# по требованию они копируются в образ для запуска через start_services.py.
+
+# Runtime-данные и локальные артефакты
 backend/data/
 backend/bin/
 frontend/.env
@@ -15,7 +16,6 @@ frontend/.env.local
 frontend/.env.*.local
 frontend/dist/
 frontend/node_modules/
-SophyGoContainer/key.json
 
 screenshots/
 plans/

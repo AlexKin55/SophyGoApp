@@ -21,10 +21,35 @@
 
 - **backend** — `golang:1.24-bookworm`, сборка `-ldflags "-X main.apiKind=max"`;
 - **frontend** — `node:22-bookworm-slim`, `npm ci && npm run build`;
-- **runtime** — `debian:bookworm-slim` + `ca-certificates`, бинарник и `dist` фронтенда.
+- **runtime** — `debian:bookworm-slim` + `ca-certificates` + `python3`.
 
-Backend отдаёт frontend сам (`STATIC_DIR=/app/frontend`), поэтому nginx внутри
-контейнера не нужен: один процесс слушает `0.0.0.0:$PORT`.
+Внутри образа раскладка как в репозитории:
+
+```text
+/app/backend/bin/sophygo-api   # бинарник MAX-сборки
+/app/backend/.env              # секреты и настройки
+/app/frontend/dist             # production-сборка frontend
+/app/scripts/                  # start_services.py и общие скрипты
+/app/deploy/                   # nginx/systemd/README
+/app/SophyGoContainer/key.json # ключ сервисного аккаунта
+```
+
+Запуск идёт через `scripts/start_services.py`:
+
+```text
+ENTRYPOINT ["python3", "/app/scripts/start_services.py", "--only", "backend", "--foreground"]
+```
+
+`--foreground` заменяет процесс Python на backend-бинарник, поэтому PID 1 и
+сигналы обрабатываются корректно. Backend сам читает `/app/backend/.env` и
+отдаёт frontend из `STATIC_DIR=/app/frontend/dist`, nginx внутри не нужен.
+
+### Секреты внутри образа
+
+`.env` и `key.json` намеренно копируются в образ. Это удобно для локального
+Docker/VM, но **небезопасно для публичного реестра**: любой, у кого есть право
+`container-registry.images.puller`, может извлечь секреты из слоёв. Для
+production надёжнее передавать их в ревизию через `--environment`/`--secret`.
 
 ## Сборка и публикация
 
@@ -81,38 +106,39 @@ yc serverless container revision deploy \
   --execution-timeout 15s
 ```
 
-## Переменные окружения ревизии
+## Переменные окружения
 
-Обязательные секреты задаются в настройках контейнера, а не в образе:
+Секреты уже лежат в `/app/backend/.env` внутри образа. Значения из Dockerfile
+имеют приоритет над `.env` (backend не перезаписывает уже заданные переменные
+окружения), поэтому `MESSENGER_API=max`, `DEV_AUTH_USER_ID=0`, пути в `/tmp`
+и `STATIC_DIR` зафиксированы. Если сервис передаёт свой `PORT`, он
+переопределит значение по умолчанию.
 
-```dotenv
-MAX_BOT_TOKEN=<токен бота MAX>
-YANDEX_API_KEY=<API-ключ Yandex Cloud>
-YANDEX_FOLDER_ID=<folder id>
+При необходимости значения можно переопределить в ревизии:
+
+```bash
+yc --profile default serverless container revision deploy \
+  --container-id bba7hk3pi4suknk58vuu \
+  --image cr.yandex/crp7hfn5k6uh54cfia4q/sophygo:v1 \
+  --environment MAX_BOT_TOKEN=<токен>,YANDEX_API_KEY=<ключ>,YANDEX_FOLDER_ID=<folder>
 ```
-
-Необязательные:
-
-```dotenv
-CORS_ORIGINS=https://<адрес-контейнера>
-LOGGING_ENABLED=true
-LOG_FORMAT=json
-```
-
-`MESSENGER_API=max`, `STATIC_DIR`, `EVENTS_FILE`, `CLIENT_LOG_FILE` уже заданы
-в Dockerfile. Если сервис передаёт свой `PORT`, он переопределит значение по
-умолчанию.
 
 ## Локальная проверка образа
 
+Секреты уже внутри, поэтому достаточно порта:
+
 ```bash
-docker run --rm -p 8080:8080 \
-  -e PORT=8080 \
-  -e MAX_BOT_TOKEN=<токен> \
-  -e YANDEX_API_KEY=<ключ> \
-  -e YANDEX_FOLDER_ID=<folder> \
+docker run --rm -p 8080:8080 -e PORT=8080 \
   cr.yandex/crp7hfn5k6uh54cfia4q/sophygo:v1
 
 curl -sS http://127.0.0.1:8080/healthz
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/
+```
+
+Запуск внутри контейнера вручную:
+
+```bash
+docker run --rm -it --entrypoint python3 \
+  cr.yandex/crp7hfn5k6uh54cfia4q/sophygo:v1 \
+  /app/scripts/start_services.py --only backend --foreground
 ```
