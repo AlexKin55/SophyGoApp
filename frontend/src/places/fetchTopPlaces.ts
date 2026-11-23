@@ -71,12 +71,15 @@ const OVERPASS_TIMEOUT_MS = env.places.overpassTimeoutMs
 /** Сколько ждём Wikimedia, прежде чем переключиться на OSM. */
 const WIKI_FALLBACK_WAIT_MS = 6_000
 
+/** Сколько ждём Wikipedia при подтягивании фото для OSM-объектов. */
+const OSM_IMAGES_WAIT_MS = 4_000
+
 let lastNominatimRequestAt = 0
 
 /** Endpoint, который уже ответил успешно: в следующий раз пробуем его первым. */
 let preferredOverpassUrl: string | null = null
 
-const STORAGE_KEY = 'sophygo:places:v1'
+const STORAGE_KEY = 'sophygo:places:v2'
 
 /** Последний удачный список объектов — на случай недоступности всех API. */
 function readStoredPlaces(bounds: MapBounds): Place[] {
@@ -601,6 +604,11 @@ function scorePage(page: GeoPage, category: string): number {
   return weight + size + landmarkBonus
 }
 
+/** Wikimedia отдаёт миниатюры с thumb.wikimedia.org; старый домен стабильнее. */
+function normalizeImageUrl(url: string): string {
+  return url.replace('https://thumb.wikimedia.org/', 'https://upload.wikimedia.org/')
+}
+
 async function fetchImages(
   pages: GeoPage[],
   signal?: AbortSignal
@@ -629,12 +637,74 @@ async function fetchImages(
       )
 
       for (const page of Object.values(data.query?.pages ?? {})) {
-        result.set(page.pageid, { image: page.thumbnail?.source })
+        result.set(page.pageid, {
+          image: page.thumbnail?.source ? normalizeImageUrl(page.thumbnail.source) : undefined,
+        })
       }
     })
   )
 
   return result
+}
+
+/** Ищет миниатюры Wikipedia по названиям объектов (для резервного OSM). */
+async function fetchImagesByTitles(
+  titles: string[],
+  signal?: AbortSignal
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>()
+
+  await Promise.all(
+    chunk(titles, TITLES_PER_REQUEST).map(async (batch) => {
+      const data = await fetchWikipedia<{
+        query?: {
+          pages?: Record<string, { title: string; thumbnail?: { source?: string } }>
+        }
+      }>(
+        {
+          action: 'query',
+          prop: 'pageimages',
+          piprop: 'thumbnail',
+          pithumbsize: '640',
+          titles: batch.join('|'),
+          redirects: '1',
+        },
+        signal
+      )
+
+      for (const page of Object.values(data.query?.pages ?? {})) {
+        const source = page.thumbnail?.source
+        if (source) result.set(normalizeName(page.title), normalizeImageUrl(source))
+      }
+    })
+  )
+
+  return result
+}
+
+/**
+ * Дополняет объекты из OSM фотографиями Wikipedia по названию.
+ * Без этого при недоступности Wikipedia карта остаётся с маркерами,
+ * но без изображений.
+ */
+async function enrichPlacesWithImages(
+  places: Place[],
+  signal?: AbortSignal
+): Promise<void> {
+  const pending = places.filter((place) => place.images.length === 0)
+  if (!pending.length) return
+
+  const titles = [...new Set(pending.map((place) => place.name))]
+  const images = await withTimeout(
+    fetchImagesByTitles(titles, signal),
+    OSM_IMAGES_WAIT_MS
+  ).catch(() => new Map<string, string>())
+  if (!images.size) return
+
+  for (const place of pending) {
+    const image = images.get(normalizeName(place.name))
+    if (image) place.images = [image]
+  }
 }
 
 function normalizeName(name: string): string {
@@ -795,7 +865,7 @@ function overpassPlaces(elements: OverpassElement[]): Place[] {
           latitude: latitude as number,
           longitude: longitude as number,
           category,
-          images: image && /^https?:\/\//.test(image) ? [image] : [],
+          images: image && /^https?:\/\//.test(image) ? [normalizeImageUrl(image)] : [],
         },
         score,
       })
@@ -999,6 +1069,7 @@ export async function fetchTopPlaces(
   }
 
   if (osmPlaces.length) {
+    await enrichPlacesWithImages(osmPlaces, osmController.signal).catch(() => {})
     writeCache(clamped, osmPlaces)
     writeStoredPlaces(osmPlaces)
     return osmPlaces
