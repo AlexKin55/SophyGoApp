@@ -37,6 +37,16 @@ func testUser() User {
 	}
 }
 
+func TestSignMatchesTelegramAlgorithm(t *testing.T) {
+	const token = "123456:test-token"
+	const dataCheckString = "auth_date=1700000000\nquery_id=AAHdF6IQAAAAAN0XohDhrOrc\nuser={\"id\":279058397,\"first_name\":\"Vlad\",\"username\":\"vlad\",\"language_code\":\"ru\"}"
+	const expected = "364101eb82d4dbe65aa4cbeee792c21ac0abee895dfddc6cbfc1d6ea70daaa4d"
+
+	if got := sign(token, dataCheckString); got != expected {
+		t.Fatalf("sign() = %q, ожидали %q", got, expected)
+	}
+}
+
 func TestVerifyValidInitDataWithSignatureField(t *testing.T) {
 	now := time.Now().UTC()
 	verifier := NewVerifier(testBotToken, 24*time.Hour)

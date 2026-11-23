@@ -2,18 +2,24 @@
 package telegram
 
 import (
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// telegramPublicKeyHex — публичный ключ Telegram для проверки поля signature.
+const telegramPublicKeyHex = "e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d"
 
 var (
 	// ErrNotConfigured — сервер не знает токен бота и не может проверить подпись.
@@ -106,6 +112,13 @@ func (v *Verifier) Verify(raw string) (*InitData, error) {
 	}
 
 	if !valid {
+		signature := values.Get("signature")
+		slog.Warn("telegram initData signature mismatch",
+			"bot_id", strings.SplitN(v.botToken, ":", 2)[0],
+			"fields", sortedFieldNames(values),
+			"has_signature", signature != "",
+			"signature_valid_for_our_bot", verifyThirdPartySignature(v.botToken, buildDataCheckString(values, true), signature),
+		)
 		return nil, ErrInvalidSignature
 	}
 
@@ -148,6 +161,36 @@ func (v *Verifier) Verify(raw string) (*InitData, error) {
 	}, nil
 }
 
+func sortedFieldNames(values url.Values) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// verifyThirdPartySignature проверяет Ed25519-подпись initData для нашего bot_id.
+// Если подпись не сходится, значит initData выпущен другим ботом.
+func verifyThirdPartySignature(botToken, dataCheckString, signature string) bool {
+	botID, _, ok := strings.Cut(botToken, ":")
+	if !ok || botID == "" || signature == "" {
+		return false
+	}
+
+	key, err := hex.DecodeString(telegramPublicKeyHex)
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return false
+	}
+	rawSignature, err := base64.RawURLEncoding.DecodeString(signature)
+	if err != nil || len(rawSignature) != ed25519.SignatureSize {
+		return false
+	}
+
+	message := botID + ":WebAppData\n" + dataCheckString
+	return ed25519.Verify(ed25519.PublicKey(key), []byte(message), rawSignature)
+}
+
 func buildDataCheckString(values url.Values, excludeSignature ...bool) string {
 	skipSignature := len(excludeSignature) > 0 && excludeSignature[0]
 
@@ -173,11 +216,11 @@ func buildDataCheckString(values url.Values, excludeSignature ...bool) string {
 }
 
 // sign считает подпись по алгоритму Telegram:
-// secret = HMAC_SHA256(key=botToken, message="WebAppData"),
+// secret = HMAC_SHA256(key="WebAppData", message=botToken),
 // hash = HMAC_SHA256(key=secret, message=dataCheckString).
 func sign(botToken, dataCheckString string) string {
-	secretMAC := hmac.New(sha256.New, []byte(botToken))
-	secretMAC.Write([]byte("WebAppData"))
+	secretMAC := hmac.New(sha256.New, []byte("WebAppData"))
+	secretMAC.Write([]byte(botToken))
 	secretKey := secretMAC.Sum(nil)
 
 	dataMAC := hmac.New(sha256.New, secretKey)
