@@ -23,6 +23,10 @@ export interface MaxWebApp {
   }
   platform?: string
   version?: string
+  /** Сообщает MAX, что мини-приложение готово (событие WebAppReady). */
+  ready?: () => void
+  /** Разворачивает мини-приложение на доступную область экрана. */
+  expand?: () => void
 }
 
 declare global {
@@ -74,11 +78,23 @@ export async function loadMessengerSdk(
   return 'browser'
 }
 
+/** Инициализирует MAX Bridge: без WebAppReady клиент может показать ошибку. */
+export function initMax(): MaxWebApp | null {
+  const app = getMaxWebApp()
+  if (!app) return null
+
+  app.ready?.()
+  app.expand?.()
+  return app
+}
+
 /** Сообщает активному Mini App, что приложение готово. */
 export function initMessenger(): MessengerKind {
   const kind = getMessengerKind()
   if (kind === 'telegram') {
     initTelegram()
+  } else if (kind === 'max') {
+    initMax()
   }
   return kind
 }
