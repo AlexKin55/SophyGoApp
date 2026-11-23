@@ -162,6 +162,7 @@ func run(logger *slog.Logger, cfg config.Config) error {
 			CORSOrigins:            cfg.CORSOrigins,
 			DevAuthUserID:          cfg.DevAuthUserID,
 			EventLimits:            eventLimits,
+			MarkerScale:            cfg.MarkerScale,
 			MaxBodyBytes:           cfg.HTTPMaxBodyBytes,
 			RequestTimeout:         cfg.HTTPRequestTimeout,
 			EventsDefaultLimit:     cfg.EventsDefaultLimit,

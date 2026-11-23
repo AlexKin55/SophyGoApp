@@ -21,6 +21,8 @@ type Config struct {
 	CORSOrigins []string
 	// MaxRecentEvents — сколько последних событий хранить в памяти.
 	MaxRecentEvents int
+	// MarkerScale — масштаб маркеров достопримечательностей на карте.
+	MarkerScale float64
 	// ShutdownTimeout — сколько ждать завершения активных запросов.
 	ShutdownTimeout time.Duration
 
@@ -119,6 +121,7 @@ const (
 	defaultEventsFile      = "data/events.jsonl"
 	defaultCORSOrigins     = "http://localhost:5173,http://127.0.0.1:5173"
 	defaultMaxRecentEvents = 1000
+	defaultMarkerScale     = 1.5
 	defaultShutdownTimeout = 10 * time.Second
 
 	// Логирование по умолчанию выключено; включается LOGGING_ENABLED=true.
@@ -195,6 +198,7 @@ func Load() (Config, error) {
 		EventsFile:             getEnv("EVENTS_FILE", defaultEventsFile),
 		CORSOrigins:            splitList(getEnv("CORS_ORIGINS", defaultCORSOrigins)),
 		MaxRecentEvents:        defaultMaxRecentEvents,
+		MarkerScale:            defaultMarkerScale,
 		ShutdownTimeout:        defaultShutdownTimeout,
 		LoggingEnabled:         defaultLoggingEnabled,
 		LogFile:                getEnv("LOG_FILE", defaultLogFile),
@@ -275,6 +279,9 @@ func Load() (Config, error) {
 
 	var err error
 	if cfg.MaxRecentEvents, err = intEnv("MAX_RECENT_EVENTS", cfg.MaxRecentEvents); err != nil {
+		return Config{}, err
+	}
+	if cfg.MarkerScale, err = positiveFloatEnv("MARKER_SCALE", cfg.MarkerScale); err != nil {
 		return Config{}, err
 	}
 	if cfg.ShutdownTimeout, err = durationEnv("SHUTDOWN_TIMEOUT", cfg.ShutdownTimeout); err != nil {
@@ -484,6 +491,19 @@ func floatEnv(key string, fallback float64) (float64, error) {
 	value, err := strconv.ParseFloat(raw, 64)
 	if err != nil || value <= 0 || value >= 1 {
 		return 0, fmt.Errorf("%s должен быть числом в диапазоне (0, 1), получено %q", key, raw)
+	}
+	return value, nil
+}
+
+func positiveFloatEnv(key string, fallback float64) (float64, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s должен быть положительным числом, получено %q", key, raw)
 	}
 	return value, nil
 }

@@ -134,5 +134,7 @@ export const env = {
     zoom: readNumber('VITE_MAP_ZOOM', 13),
     moveDebounceMs: readNumber('VITE_MAP_MOVE_DEBOUNCE_MS', 500),
     tileUrl: readString('VITE_MAP_TILE_URL', 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
+    // Fallback; актуальное значение приходит с backend (/api/v1/config).
+    markerScale: readNumber('VITE_MARKER_SCALE', 1.5),
   },
 } as const

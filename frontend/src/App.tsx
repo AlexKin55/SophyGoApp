@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import { useGeolocation } from './geolocation/useGeolocation'
 import { useReverseGeocode } from './geolocation/useReverseGeocode'
 import { fetchTopPlaces } from './places/fetchTopPlaces'
+import { fetchMarkerScale } from './api/config'
 import type { Place } from './places/places'
 import { GuideDialog } from './components/GuideDialog'
 import { useGuideSession } from './guide/useGuideSession'
@@ -100,10 +101,15 @@ function App() {
   const [places, setPlaces] = useState<Place[]>([])
   const [placesLoading, setPlacesLoading] = useState(false)
   const [placesError, setPlacesError] = useState<string | null>(null)
+  const [markerScale, setMarkerScale] = useState(env.map.markerScale)
 
   const guide = useGuideSession()
   const handleGuidePlaceOpen = guide.handlePlaceOpen
   const { position, error, errorCode, retry } = useGeolocation()
+
+  useEffect(() => {
+    void fetchMarkerScale().then(setMarkerScale)
+  }, [])
 
   // Округляем до ~100 м: не дёргаем Nominatim на каждый тик GPS.
   const geocodeLat = position ? Math.round(position.latitude * env.geolocation.roundFactor) / env.geolocation.roundFactor : null
@@ -265,12 +271,54 @@ function App() {
       })
       const color = getCategoryColor(place.category)
       const emoji = getCategoryEmoji(place.category)
+      const markerSize = Math.round(30 * markerScale)
+      const markerBorder = Math.max(2, Math.round(3 * markerScale))
+      const markerFontSize = Math.round(14 * markerScale)
+
+      const markerElement = document.createElement('div')
+      markerElement.className = 'place-marker-inner'
+      markerElement.style.width = `${markerSize}px`
+      markerElement.style.height = `${markerSize}px`
+      markerElement.style.boxSizing = 'border-box'
+      markerElement.style.borderRadius = '50%'
+      markerElement.style.border = `${markerBorder}px solid #fff`
+      markerElement.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)'
+      markerElement.style.overflow = 'hidden'
+
+      const showEmojiFallback = () => {
+        markerElement.replaceChildren()
+        markerElement.style.background = color
+        markerElement.style.display = 'flex'
+        markerElement.style.alignItems = 'center'
+        markerElement.style.justifyContent = 'center'
+        markerElement.style.fontSize = `${markerFontSize}px`
+        markerElement.style.lineHeight = '1'
+        markerElement.textContent = emoji
+      }
+
+      const photo = place.images?.[0]
+      if (photo) {
+        markerElement.style.background = '#fff'
+        const image = document.createElement('img')
+        image.src = photo
+        image.alt = place.name
+        image.decoding = 'async'
+        image.style.width = '100%'
+        image.style.height = '100%'
+        image.style.objectFit = 'cover'
+        image.style.display = 'block'
+        image.onerror = showEmojiFallback
+        markerElement.appendChild(image)
+      } else {
+        showEmojiFallback()
+      }
+
       marker.setIcon(
         L.divIcon({
           className: 'place-marker',
-          html: `<div style="background:${color};width:30px;height:30px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1">${emoji}</div>`,
-          iconSize: [30, 30],
-          iconAnchor: [15, 15],
+          html: markerElement,
+          iconSize: [markerSize, markerSize],
+          iconAnchor: [markerSize / 2, markerSize / 2],
         })
       )
       marker.bindTooltip(place.name, {
@@ -288,7 +336,7 @@ function App() {
       marker.addTo(map)
       placeMarkerRefs.current.set(place.id, marker)
     })
-  }, [places, handleGuidePlaceOpen])
+  }, [places, handleGuidePlaceOpen, markerScale])
 
   useEffect(() => {
     renderPlaceMarkers()

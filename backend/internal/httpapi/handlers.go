@@ -42,6 +42,10 @@ type healthResponse struct {
 	Time   time.Time `json:"time"`
 }
 
+type configResponse struct {
+	MarkerScale float64 `json:"markerScale"`
+}
+
 type createSessionResponse struct {
 	SessionID         string              `json:"sessionId"`
 	RealtimeToken     string              `json:"realtimeToken"`
@@ -74,6 +78,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		Status: "ok",
 		Time:   time.Now().UTC(),
 	})
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, configResponse{MarkerScale: s.markerScale})
 }
 
 // handleCreateSession проверяет initData и создаёт сессию Гида.

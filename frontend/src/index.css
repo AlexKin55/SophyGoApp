@@ -839,6 +839,8 @@ body,
 
 .place-marker {
   cursor: pointer;
+  background: transparent;
+  border: 0;
 }
 
 .places-loading {

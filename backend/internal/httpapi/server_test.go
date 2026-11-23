@@ -132,8 +132,8 @@ func dataCheckString(values url.Values) string {
 }
 
 func signInitData(botToken, dataCheckString string) string {
-	secretMAC := hmac.New(sha256.New, []byte(botToken))
-	secretMAC.Write([]byte("WebAppData"))
+	secretMAC := hmac.New(sha256.New, []byte("WebAppData"))
+	secretMAC.Write([]byte(botToken))
 	secretKey := secretMAC.Sum(nil)
 
 	dataMAC := hmac.New(sha256.New, secretKey)

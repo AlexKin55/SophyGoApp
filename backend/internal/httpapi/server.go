@@ -32,6 +32,7 @@ type Deps struct {
 	CORSOrigins   []string
 	DevAuthUserID int64
 	EventLimits   events.Limits
+	MarkerScale   float64
 
 	MaxBodyBytes       int64
 	RequestTimeout     time.Duration
@@ -59,6 +60,7 @@ type Server struct {
 	realtimeConfigured bool
 	devAuthUserID      int64
 	eventLimits        events.Limits
+	markerScale        float64
 
 	maxBodyBytes       int64
 	requestTimeout     time.Duration
@@ -99,6 +101,7 @@ func New(deps Deps) *Server {
 		realtimeConfigured: deps.Realtime.APIKey != "" && deps.Realtime.ModelURI != "",
 		devAuthUserID:      deps.DevAuthUserID,
 		eventLimits:        deps.EventLimits.WithDefaults(),
+		markerScale:        positiveFloat(deps.MarkerScale, 1.5),
 		maxBodyBytes:       positiveInt64(deps.MaxBodyBytes, maxRequestBodyBytes),
 		requestTimeout:     positiveDuration(deps.RequestTimeout, requestTimeout),
 		eventsDefaultLimit: positiveInt(deps.EventsDefaultLimit, defaultEventsLimit),
@@ -129,6 +132,13 @@ func positiveInt(value, fallback int) int {
 	return fallback
 }
 
+func positiveFloat(value, fallback float64) float64 {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
+
 func positiveDuration(value, fallback time.Duration) time.Duration {
 	if value > 0 {
 		return value
@@ -147,6 +157,7 @@ func (s *Server) Routes() http.Handler {
 	router.Use(s.cors)
 
 	router.Get("/healthz", s.handleHealth)
+	router.Get("/api/v1/config", s.handleConfig)
 
 	// WebSocket-соединение живёт дольше обычного запроса, поэтому таймаут
 	// middleware.Timeout к нему не применяется.

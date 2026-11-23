@@ -101,6 +101,27 @@ CLIENT_LOG_FILE=/opt/sophygo/data/frontend-client.log
 Секреты `TELEGRAM_BOT_TOKEN`, `YANDEX_API_KEY`, `YANDEX_FOLDER_ID`
 заданы в этом же файле и в репозиторий не попадают.
 
+## Размер маркеров
+
+Масштаб маркеров достопримечательностей задаётся в
+`/opt/sophygo/backend/.env`:
+
+```dotenv
+MARKER_SCALE=1.5
+```
+
+Frontend получает значение через `GET /api/v1/config` при загрузке,
+поэтому пересобирать его не нужно. После изменения:
+
+```bash
+ssh SophyGo
+sudo sed -i 's/^MARKER_SCALE=.*/MARKER_SCALE=2/' /opt/sophygo/backend/.env
+sudo systemctl restart sophygo-api
+```
+
+Затем обновите страницу Mini App. `VITE_MARKER_SCALE` в frontend `.env` —
+только fallback на случай, если backend недоступен.
+
 ## Локальная разработка
 
 Скрипты `scripts/start_services.py` и `scripts/stop_services.py`
