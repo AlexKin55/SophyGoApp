@@ -36,7 +36,15 @@ export async function createGuideSession(): Promise<GuideSession> {
   })
 
   if (!response.ok) {
-    throw new Error(`Не удалось создать сессию Гида: HTTP ${response.status}`)
+    // Показываем причину от backend: нет initData, неверная подпись и т.п.
+    let detail = ''
+    try {
+      const body = (await response.json()) as { error?: string }
+      if (body?.error) detail = `: ${body.error}`
+    } catch {
+      // Тело не JSON — остаётся только HTTP-код.
+    }
+    throw new Error(`Не удалось создать сессию Гида: HTTP ${response.status}${detail}`)
   }
 
   return (await response.json()) as GuideSession

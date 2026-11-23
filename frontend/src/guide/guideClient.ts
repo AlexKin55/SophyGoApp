@@ -137,6 +137,16 @@ export class GuideClient {
     try {
       await this.audio.ensurePlayback()
 
+      // Без initData мессенджера сессию Гида создать нельзя. Не показываем
+      // ложную ошибку доставки — объясняем, что Гид недоступен.
+      if (!getInitData() && !isDevAuthEnabled()) {
+        this.update({
+          status: 'unavailable',
+          error: 'Голосовой Гид доступен только в MAX. Откройте мини-приложение через бота.',
+        })
+        return
+      }
+
       // Клик по объекту — пользовательский жест: сначала запрашиваем микрофон,
       // пока браузер не потерял контекст жеста, затем подключаемся к серверу.
       if (!this.listening) {
@@ -144,12 +154,16 @@ export class GuideClient {
       }
       await this.connect()
 
+      // Если сессия не создалась, connect() уже показал причину. Отправлять
+      // place-open без sessionId бессмысленно: backend вернёт delivered=false.
+      if (!this.session) return
+
       // Новый объект обрабатываем как перебивание: Гид прерывает текущий
       // рассказ и сразу начинает говорить про выбранное место.
       this.handleInterruption(true)
       this.update({ transcript: '', error: null })
 
-      const result = await sendPlaceOpen(place, this.session?.sessionId)
+      const result = await sendPlaceOpen(place, this.session.sessionId)
       if (result?.sessionId && this.session) {
         this.session = { ...this.session, sessionId: result.sessionId }
       }
