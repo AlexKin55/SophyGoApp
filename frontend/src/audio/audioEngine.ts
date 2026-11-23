@@ -99,27 +99,39 @@ export class RealtimeAudio {
   /** Начинает захват микрофона и отправляет PCM16-чанки и их RMS в callback. */
   async startCapture(onChunk: (pcm: Uint8Array, rms: number) => void): Promise<void> {
     this.chunkHandler = onChunk
-    if (this.captureStream) return
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Микрофон недоступен в этом браузере')
+    const streamAlive =
+      this.captureStream?.getAudioTracks().some((track) => track.readyState === 'live') ?? false
+
+    if (!streamAlive) {
+      this.releaseCapture()
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Микрофон недоступен в этом браузере')
+      }
+
+      // Разрешение спрашиваем один раз за сессию: поток сохраняется и
+      // переиспользуется при повторном включении микрофона.
+      this.captureStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      this.captureContext = createAudioContext(this.inputRate)
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
+    const context = this.captureContext
+    const stream = this.captureStream
+    if (!context || !stream) {
+      throw new Error('Не удалось получить доступ к микрофону')
+    }
 
-    this.captureStream = stream
-    const context = createAudioContext(this.inputRate)
-    this.captureContext = context
     if (context.state === 'suspended') {
       await context.resume()
     }
+    if (this.processor) return
 
     this.captureSource = context.createMediaStreamSource(stream)
     this.processor = context.createScriptProcessor(env.audio.captureBufferSize, 1, 1)
@@ -147,8 +159,8 @@ export class RealtimeAudio {
     this.silentGain.connect(context.destination)
   }
 
-  /** Останавливает микрофон и освобождает устройства. */
-  stopCapture(): void {
+  /** Отключает отправку чанков, но оставляет микрофон открытым. */
+  pauseCapture(): void {
     this.chunkHandler = null
 
     this.processor?.disconnect()
@@ -157,7 +169,15 @@ export class RealtimeAudio {
     this.captureSource = null
     this.silentGain?.disconnect()
     this.silentGain = null
+  }
 
+  /** Останавливает микрофон и освобождает устройства. */
+  stopCapture(): void {
+    this.pauseCapture()
+    this.releaseCapture()
+  }
+
+  private releaseCapture(): void {
     this.captureStream?.getTracks().forEach((track) => track.stop())
     this.captureStream = null
 

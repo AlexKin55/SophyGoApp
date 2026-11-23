@@ -441,19 +441,39 @@ function App() {
         −
       </button>
 
-      {error && (
-        <div className="geo-notice" role="status">
-          <div className="geo-notice-text">
-            <span>{error}</span>
-            {errorCode === 'permission-denied' && (
-              <span className="geo-notice-hint">
-                iPhone: Настройки → Telegram → Геопозиция. Android: Настройки → Приложения → Telegram → Разрешения.
-              </span>
-            )}
-          </div>
-          <button type="button" className="geo-notice-retry" onClick={retry}>
-            Повторить
-          </button>
+      {(error || guide.micError) && (
+        <div className="notice-stack">
+          {error && (
+            <div className="geo-notice" role="status">
+              <div className="geo-notice-text">
+                <span>{error}</span>
+                {errorCode === 'permission-denied' && (
+                  <span className="geo-notice-hint">
+                    iPhone: Настройки → Telegram → Геопозиция. Android: Настройки → Приложения → Telegram → Разрешения.
+                  </span>
+                )}
+              </div>
+              <button type="button" className="geo-notice-retry" onClick={retry}>
+                Повторить
+              </button>
+            </div>
+          )}
+
+          {guide.micError && (
+            <div className="geo-notice" role="status">
+              <div className="geo-notice-text">
+                <span>{guide.micError}</span>
+                {guide.micErrorCode === 'permission-denied' && (
+                  <span className="geo-notice-hint">
+                    iPhone: Настройки → Telegram → Микрофон. Android: Настройки → Приложения → Telegram → Разрешения → Микрофон.
+                  </span>
+                )}
+              </div>
+              <button type="button" className="geo-notice-retry" onClick={guide.retryMicrophone}>
+                Повторить
+              </button>
+            </div>
+          )}
         </div>
       )}
 

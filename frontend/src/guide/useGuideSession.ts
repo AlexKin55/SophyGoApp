@@ -7,6 +7,7 @@ import type { Place } from '../places/places'
 export interface GuideController extends GuideState {
   handlePlaceOpen: (place: Place) => Promise<void>
   toggleListening: () => Promise<void>
+  retryMicrophone: () => Promise<void>
   stop: () => Promise<void>
 }
 
@@ -55,6 +56,10 @@ export function useGuideSession(): GuideController {
     await clientRef.current?.toggleListening()
   }, [])
 
+  const retryMicrophone = useCallback(async () => {
+    await clientRef.current?.retryMicrophone()
+  }, [])
+
   const stop = useCallback(async () => {
     await clientRef.current?.stop()
   }, [])
@@ -63,6 +68,7 @@ export function useGuideSession(): GuideController {
     ...state,
     handlePlaceOpen,
     toggleListening,
+    retryMicrophone,
     stop,
   }
 }

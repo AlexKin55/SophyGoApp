@@ -19,12 +19,17 @@ export type GuideStatus =
 
 export type VadStatus = 'idle' | 'loading' | 'ready' | 'fallback'
 
+/** Причина, по которой микрофон недоступен. */
+export type MicErrorCode = 'permission-denied' | 'not-found' | 'busy' | 'unsupported'
+
 export interface GuideState {
   status: GuideStatus
   connected: boolean
   listening: boolean
   vadStatus: VadStatus
   error: string | null
+  micError: string | null
+  micErrorCode: MicErrorCode | null
   transcript: string
   userTranscript: string
 }
@@ -35,6 +40,8 @@ export const initialGuideState: GuideState = {
   listening: false,
   vadStatus: 'idle',
   error: null,
+  micError: null,
+  micErrorCode: null,
   transcript: '',
   userTranscript: '',
 }
@@ -165,6 +172,12 @@ export class GuideClient {
     await this.startListening()
   }
 
+  /** Повторный запрос доступа к микрофону из плашки. */
+  async retryMicrophone(): Promise<void> {
+    this.update({ micError: null, micErrorCode: null })
+    await this.startListening()
+  }
+
   /** Останавливает текущий ответ Гида и воспроизведение. */
   async stop(): Promise<void> {
     logger.info('guide stop requested', { sessionId: this.session?.sessionId })
@@ -267,10 +280,28 @@ export class GuideClient {
         return
       }
 
-      this.update({ listening: true, status: 'listening', error: null })
+      this.update({
+        listening: true,
+        status: 'listening',
+        error: null,
+        micError: null,
+        micErrorCode: null,
+      })
     } catch (error) {
       if (generation !== this.listenGeneration) return
       this.teardownCapture()
+
+      const mic = micErrorInfo(error)
+      if (mic) {
+        this.update({
+          listening: false,
+          status: this.state.connected ? 'ready' : 'idle',
+          micError: mic.message,
+          micErrorCode: mic.code,
+        })
+        return
+      }
+
       this.update({ listening: false, status: 'error', error: errorMessage(error) })
     }
   }
@@ -291,6 +322,8 @@ export class GuideClient {
   private teardownCapture(): void {
     this.listenGeneration += 1
     this.stopIdleWatch()
+    // Поток закрываем полностью: при повторном использовании того же
+    // MediaStream в WebView перестаёт работать эхоподавление.
     this.audio.stopCapture()
 
     const vad = this.sileroVad
@@ -565,6 +598,48 @@ function waitForOpen(ws: WebSocket): Promise<void> {
 function isCancellationNoise(message: string): boolean {
   const text = message.toLowerCase()
   return text.includes('no active response') || text.includes('cancellation failed')
+}
+
+interface MicErrorInfo {
+  code: MicErrorCode
+  message: string
+}
+
+function micErrorInfo(error: unknown): MicErrorInfo | null {
+  if (!(error instanceof Error)) return null
+
+  switch (error.name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+    case 'SecurityError':
+      return {
+        code: 'permission-denied',
+        message: 'Доступ к микрофону запрещён. Разрешите его в настройках Telegram или браузера.',
+      }
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return {
+        code: 'not-found',
+        message: 'Микрофон не найден. Подключите его и попробуйте снова.',
+      }
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return {
+        code: 'busy',
+        message: 'Микрофон занят другим приложением.',
+      }
+    default:
+      break
+  }
+
+  if (error.message === 'Микрофон недоступен в этом браузере') {
+    return {
+      code: 'unsupported',
+      message: 'Микрофон недоступен в этом браузере.',
+    }
+  }
+
+  return null
 }
 
 function errorMessage(error: unknown): string {
