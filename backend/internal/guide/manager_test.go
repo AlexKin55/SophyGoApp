@@ -53,14 +53,14 @@ func newTestManager(t *testing.T) *Manager {
 func TestEnsureReusesSessionForSameUser(t *testing.T) {
 	manager := newTestManager(t)
 
-	first := manager.Ensure(42)
-	second := manager.Ensure(42)
+	first := manager.Ensure(42, "Влад")
+	second := manager.Ensure(42, "Влад")
 
 	if first.ID != second.ID {
 		t.Errorf("id сессий различаются: %q и %q", first.ID, second.ID)
 	}
 
-	other := manager.Ensure(43)
+	other := manager.Ensure(43, "Иван")
 	if other.ID == first.ID {
 		t.Error("разные пользователи получили одну сессию")
 	}
@@ -68,7 +68,7 @@ func TestEnsureReusesSessionForSameUser(t *testing.T) {
 
 func TestIssueAndConsumeTokenIsOneTime(t *testing.T) {
 	manager := newTestManager(t)
-	info := manager.Ensure(42)
+	info := manager.Ensure(42, "Влад")
 
 	token, err := manager.IssueToken(info.ID)
 	if err != nil {
@@ -93,7 +93,7 @@ func TestConsumeTokenRejectsExpiredToken(t *testing.T) {
 	base := time.Now()
 	manager.now = func() time.Time { return base }
 
-	info := manager.Ensure(42)
+	info := manager.Ensure(42, "Влад")
 	token, err := manager.IssueToken(info.ID)
 	if err != nil {
 		t.Fatalf("IssueToken вернул ошибку: %v", err)
@@ -108,7 +108,7 @@ func TestConsumeTokenRejectsExpiredToken(t *testing.T) {
 
 func TestSendPlacePromptAndStop(t *testing.T) {
 	manager := newTestManager(t)
-	info := manager.Ensure(42)
+	info := manager.Ensure(42, "Влад")
 	sender := &fakeSender{}
 
 	generation, err := manager.Attach(info.ID, sender)
@@ -151,7 +151,7 @@ func TestSendPlacePromptAndStop(t *testing.T) {
 
 func TestAttachReplacesPreviousConnection(t *testing.T) {
 	manager := newTestManager(t)
-	info := manager.Ensure(42)
+	info := manager.Ensure(42, "Влад")
 	first := &fakeSender{}
 	second := &fakeSender{}
 
@@ -184,7 +184,7 @@ func TestCleanupRemovesExpiredSessions(t *testing.T) {
 	base := time.Now()
 	manager.now = func() time.Time { return base }
 
-	info := manager.Ensure(42)
+	info := manager.Ensure(42, "Влад")
 	sender := &fakeSender{}
 	if _, err := manager.Attach(info.ID, sender); err != nil {
 		t.Fatalf("Attach вернул ошибку: %v", err)
@@ -209,5 +209,39 @@ func TestUnknownSessionReturnsErrors(t *testing.T) {
 	}
 	if _, err := manager.IssueToken("missing"); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("ожидали ErrSessionNotFound, получили %v", err)
+	}
+}
+
+func TestSendGreetingOnce(t *testing.T) {
+	manager := newTestManager(t)
+	info := manager.Ensure(42, "Алексей")
+	sender := &fakeSender{}
+
+	if _, err := manager.Attach(info.ID, sender); err != nil {
+		t.Fatalf("Attach вернул ошибку: %v", err)
+	}
+
+	sent, err := manager.SendGreeting(context.Background(), info.ID)
+	if err != nil {
+		t.Fatalf("SendGreeting вернул ошибку: %v", err)
+	}
+	if !sent {
+		t.Fatal("первое приветствие должно быть отправлено")
+	}
+
+	sent, err = manager.SendGreeting(context.Background(), info.ID)
+	if err != nil {
+		t.Fatalf("повторный SendGreeting вернул ошибку: %v", err)
+	}
+	if sent {
+		t.Fatal("повторное приветствие не должно отправляться")
+	}
+
+	texts, _, _ := sender.snapshot()
+	if len(texts) != 1 {
+		t.Fatalf("отправлено %d сообщений, ожидали 1", len(texts))
+	}
+	if !strings.Contains(texts[0], "Алексей") {
+		t.Fatalf("приветствие не содержит имя пользователя: %q", texts[0])
 	}
 }

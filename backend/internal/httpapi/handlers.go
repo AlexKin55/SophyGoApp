@@ -93,7 +93,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info := s.guide.Ensure(initData.User.ID)
+	info := s.guide.Ensure(initData.User.ID, initData.User.FirstName)
 	token, err := s.guide.IssueToken(info.ID)
 	if err != nil {
 		s.logger.Error("failed to issue realtime token", "error", err, "session_id", info.ID)
@@ -156,7 +156,7 @@ func (s *Server) handlePlaceOpen(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := request.SessionID
 	if initData != nil {
-		sessionID, err = s.resolveSession(sessionID, initData.User.ID)
+		sessionID, err = s.resolveSession(sessionID, initData.User.ID, initData.User.FirstName)
 		if err != nil {
 			writeError(w, http.StatusForbidden, "сессия принадлежит другому пользователю")
 			return
@@ -222,6 +222,43 @@ func (s *Server) handlePlaceOpen(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGreeting отправляет одноразовое приветствие в активную realtime-сессию.
+func (s *Server) handleGreeting(w http.ResponseWriter, r *http.Request) {
+	initData, ok := s.requireMessenger(w, r)
+	if !ok {
+		return
+	}
+
+	sessionID := chi.URLParam(r, "sessionID")
+	info, exists := s.guide.Get(sessionID)
+	if !exists {
+		writeError(w, http.StatusNotFound, "сессия не найдена")
+		return
+	}
+	if info.TelegramUserID != initData.User.ID {
+		writeError(w, http.StatusForbidden, "сессия принадлежит другому пользователю")
+		return
+	}
+
+	sent, err := s.guide.SendGreeting(r.Context(), sessionID)
+	switch {
+	case err == nil:
+		s.logger.Info("guide greeting requested",
+			"session_id", sessionID,
+			"telegram_user_id", initData.User.ID,
+			"sent", sent,
+		)
+		writeJSON(w, http.StatusOK, map[string]any{"sent": sent})
+	case errors.Is(err, guide.ErrNoRealtime):
+		writeError(w, http.StatusConflict, "Realtime-соединение не установлено")
+	case errors.Is(err, guide.ErrSessionNotFound):
+		writeError(w, http.StatusNotFound, "сессия не найдена")
+	default:
+		s.logger.Error("failed to send guide greeting", "error", err, "session_id", sessionID)
+		writeError(w, http.StatusBadGateway, "не удалось отправить приветствие")
+	}
+}
+
 // handleStopSession прерывает текущий ответ Гида.
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	initData, ok := s.requireMessenger(w, r)
@@ -256,6 +293,38 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleRealtimeStatus проверяет доступность Yandex Realtime API.
+// Публичный диагностический endpoint: не раскрывает ключ, только результат Dial.
+func (s *Server) handleRealtimeStatus(w http.ResponseWriter, r *http.Request) {
+	if !s.realtimeConfigured {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"configured": false,
+			"ok":         false,
+			"error":      "YANDEX_API_KEY или YANDEX_FOLDER_ID не заданы",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	conn, err := realtime.Dial(ctx, s.realtime)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"configured": true,
+			"ok":         false,
+			"error":      err.Error(),
+		})
+		return
+	}
+	_ = conn.CloseNow()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configured": true,
+		"ok":         true,
+	})
+}
+
 // handleRealtime проксирует WebSocket между браузером и Yandex Realtime API.
 func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimSpace(r.URL.Query().Get("token"))
@@ -264,7 +333,8 @@ func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if origin := r.Header.Get("Origin"); origin != "" && !s.isOriginAllowed(origin) {
+	if origin := r.Header.Get("Origin"); origin != "" &&
+		!s.isOriginAllowed(origin) && !s.isSameOrigin(r, origin) {
 		writeError(w, http.StatusForbidden, "origin не разрешён")
 		return
 	}
@@ -597,14 +667,14 @@ func (s *Server) messengerName() string {
 }
 
 // resolveSession возвращает существующую сессию пользователя или создаёт новую.
-func (s *Server) resolveSession(sessionID string, telegramUserID int64) (string, error) {
+func (s *Server) resolveSession(sessionID string, telegramUserID int64, firstName string) (string, error) {
 	if sessionID == "" {
-		return s.guide.Ensure(telegramUserID).ID, nil
+		return s.guide.Ensure(telegramUserID, firstName).ID, nil
 	}
 
 	info, ok := s.guide.Get(sessionID)
 	if !ok {
-		return s.guide.Ensure(telegramUserID).ID, nil
+		return s.guide.Ensure(telegramUserID, firstName).ID, nil
 	}
 	if info.TelegramUserID != telegramUserID {
 		return "", fmt.Errorf("session owner mismatch")

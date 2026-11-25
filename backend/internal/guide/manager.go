@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,6 +31,7 @@ type RealtimeSender interface {
 type SessionInfo struct {
 	ID             string
 	TelegramUserID int64
+	FirstName      string
 	CreatedAt      time.Time
 	ExpiresAt      time.Time
 	Realtime       bool
@@ -39,6 +41,7 @@ type session struct {
 	info       SessionInfo
 	sender     RealtimeSender
 	generation uint64
+	greeted    bool
 }
 
 type tokenEntry struct {
@@ -102,7 +105,8 @@ func NewManagerWithCleanup(ttl, tokenTTL, cleanupInterval time.Duration) *Manage
 }
 
 // Ensure возвращает существующую сессию пользователя или создаёт новую.
-func (m *Manager) Ensure(telegramUserID int64) SessionInfo {
+// firstName обновляет имя в сессии, если оно ещё не задано.
+func (m *Manager) Ensure(telegramUserID int64, firstName string) SessionInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -111,6 +115,9 @@ func (m *Manager) Ensure(telegramUserID int64) SessionInfo {
 	if id, ok := m.byUser[telegramUserID]; ok {
 		if existing, exists := m.sessions[id]; exists && now.Before(existing.info.ExpiresAt) {
 			existing.info.ExpiresAt = now.Add(m.ttl)
+			if existing.info.FirstName == "" && strings.TrimSpace(firstName) != "" {
+				existing.info.FirstName = strings.TrimSpace(firstName)
+			}
 			return existing.info
 		}
 		delete(m.sessions, id)
@@ -120,6 +127,7 @@ func (m *Manager) Ensure(telegramUserID int64) SessionInfo {
 	info := SessionInfo{
 		ID:             "sess_" + rand.Text(),
 		TelegramUserID: telegramUserID,
+		FirstName:      strings.TrimSpace(firstName),
 		CreatedAt:      now,
 		ExpiresAt:      now.Add(m.ttl),
 	}
@@ -249,6 +257,52 @@ func (m *Manager) Stop(ctx context.Context, sessionID string) error {
 		return err
 	}
 	return sender.CancelResponse(ctx)
+}
+
+// SendGreeting отправляет приветствие один раз за жизнь сессии.
+// Если приветствие уже отправлялось, возвращает (false, nil).
+func (m *Manager) SendGreeting(ctx context.Context, sessionID string) (bool, error) {
+	m.mu.Lock()
+	existing, ok := m.sessions[sessionID]
+	if !ok {
+		m.mu.Unlock()
+		return false, ErrSessionNotFound
+	}
+	if existing.greeted {
+		m.mu.Unlock()
+		return false, nil
+	}
+	if existing.sender == nil {
+		m.mu.Unlock()
+		return false, ErrNoRealtime
+	}
+	sender := existing.sender
+	name := strings.TrimSpace(existing.info.FirstName)
+	existing.greeted = true
+	m.mu.Unlock()
+
+	prompt := buildGreetingPrompt(name)
+	if err := sender.SendUserText(ctx, prompt); err != nil {
+		m.mu.Lock()
+		if current, exists := m.sessions[sessionID]; exists && current.sender == sender {
+			current.greeted = false
+		}
+		m.mu.Unlock()
+		return false, err
+	}
+	return true, nil
+}
+
+func buildGreetingPrompt(firstName string) string {
+	name := strings.TrimSpace(firstName)
+	if name == "" {
+		name = "путешественник"
+	}
+	return fmt.Sprintf(
+		"Поприветствуй пользователя %s и вкратце расскажи, как пользоваться приложением: "+
+			"можно выбрать достопримечательность на карте или нажать кнопку «Поговорим» и спросить что-нибудь.",
+		name,
+	)
 }
 
 // Close останавливает очистку и закрывает все Realtime-соединения.

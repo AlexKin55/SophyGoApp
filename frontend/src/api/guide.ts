@@ -69,3 +69,26 @@ export async function stopGuide(sessionId: string): Promise<void> {
     throw new Error(`Не удалось остановить Гида: HTTP ${response.status}`)
   }
 }
+
+/** Просит сервер отправить одноразовое приветствие в активную realtime-сессию. */
+export async function sendGreeting(sessionId: string): Promise<boolean> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/session/${encodeURIComponent(sessionId)}/greeting`, {
+    method: 'POST',
+    headers: initDataHeaders(),
+    signal: AbortSignal.timeout(env.apiRequestTimeoutMs),
+  })
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const body = (await response.json()) as { error?: string }
+      if (body?.error) detail = `: ${body.error}`
+    } catch {
+      // Тело не JSON — остаётся только HTTP-код.
+    }
+    throw new Error(`Не удалось отправить приветствие: HTTP ${response.status}${detail}`)
+  }
+
+  const body = (await response.json()) as { sent?: boolean }
+  return Boolean(body.sent)
+}

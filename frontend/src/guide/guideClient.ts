@@ -1,8 +1,19 @@
 import { RealtimeAudio, encodeBase64 } from '../audio/audioEngine'
 import { SileroVadGate } from '../audio/sileroVad'
-import { buildRealtimeUrl, createGuideSession, stopGuide, type GuideSession } from '../api/guide'
+import {
+  buildRealtimeUrl,
+  createGuideSession,
+  sendGreeting,
+  stopGuide,
+  type GuideSession,
+} from '../api/guide'
 import { sendPlaceOpen, type PlaceOpenFailureReason } from '../api/events'
 import { getInitData } from '../platform/messenger'
+import {
+  openMaxPermissionsSettings,
+  openMaxSystemSettings,
+  requestMaxMicAccess,
+} from '../platform/maxPermissions'
 import { isDevAuthEnabled } from '../platform/devAuth'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
@@ -76,6 +87,7 @@ export class GuideClient {
   private listening = false
   private disposed = false
   private listenGeneration = 0
+  private greetedSessionId: string | null = null
 
   // Эпохи защищают от «хвостов» прошлого ответа после перебивания.
   private playbackEpoch = 0
@@ -253,6 +265,20 @@ export class GuideClient {
       await this.audio.ensurePlayback()
       if (generation !== this.listenGeneration) return
 
+      // В MAX разрешение выдаётся через PermissionsManager: без него WebView
+      // не показывает запрос, а getUserMedia сразу падает с NotAllowedError.
+      const permissionError = await this.requestMicPermission()
+      if (generation !== this.listenGeneration) return
+      if (permissionError) {
+        this.update({
+          listening: false,
+          status: this.state.connected ? 'ready' : 'idle',
+          micError: permissionError.message,
+          micErrorCode: permissionError.code,
+        })
+        return
+      }
+
       this.lastVoiceAt = Date.now()
       this.voiceFrames = 0
 
@@ -317,6 +343,44 @@ export class GuideClient {
       }
 
       this.update({ listening: false, status: 'error', error: errorMessage(error) })
+    }
+  }
+
+  /**
+   * Запрашивает доступ к микрофону у MAX.
+   *
+   * Для Telegram и браузера возвращает null: там getUserMedia сам показывает
+   * системный диалог. При отказе MAX открывает нужные настройки, чтобы
+   * пользователь мог вернуться и включить доступ.
+   */
+  private async requestMicPermission(): Promise<MicErrorInfo | null> {
+    const access = await requestMaxMicAccess()
+    switch (access.status) {
+      case 'granted':
+      case 'unsupported':
+        return null
+      case 'app-denied':
+        void openMaxPermissionsSettings().catch(() => {
+          // Настройки могли не открыться — текст ошибки остаётся на экране.
+        })
+        return {
+          code: 'permission-denied',
+          message:
+            'Доступ к микрофону запрещён в MAX. Разрешите его в настройках: MAX → Настройки → Безопасность → Мини-приложения.',
+        }
+      case 'system-denied':
+        void openMaxSystemSettings().catch(() => {
+          // Настройки могли не открыться — текст ошибки остаётся на экране.
+        })
+        return {
+          code: 'permission-denied',
+          message: 'У MAX нет доступа к микрофону. Разрешите его в настройках устройства.',
+        }
+      case 'unavailable':
+        return {
+          code: 'not-found',
+          message: 'Микрофон недоступен в MAX на этом устройстве.',
+        }
     }
   }
 
@@ -466,6 +530,24 @@ export class GuideClient {
 
     logger.info('guide websocket connected')
     this.update({ connected: true, status: 'ready', error: null })
+    this.maybeSendGreeting(session.sessionId)
+  }
+
+  private maybeSendGreeting(sessionId: string): void {
+    if (this.greetedSessionId === sessionId) return
+    this.greetedSessionId = sessionId
+
+    void sendGreeting(sessionId)
+      .then((sent) => {
+        logger.info('guide greeting result', { sessionId, sent })
+      })
+      .catch((error) => {
+        // Позволяем повторить при следующем успешном подключении.
+        if (this.greetedSessionId === sessionId) {
+          this.greetedSessionId = null
+        }
+        logger.warn('guide greeting failed', { sessionId, error: errorMessage(error) })
+      })
   }
 
   private handleClose(): void {
@@ -628,7 +710,7 @@ function micErrorInfo(error: unknown): MicErrorInfo | null {
     case 'SecurityError':
       return {
         code: 'permission-denied',
-        message: 'Доступ к микрофону запрещён. Разрешите его в настройках Telegram или браузера.',
+        message: 'Доступ к микрофону запрещён. Разрешите его в настройках мессенджера или браузера.',
       }
     case 'NotFoundError':
     case 'DevicesNotFoundError':
@@ -676,7 +758,7 @@ function errorMessage(error: unknown): string {
     switch (error.name) {
       case 'NotAllowedError':
       case 'PermissionDeniedError':
-        return 'Нет доступа к микрофону. Разрешите его в настройках браузера.'
+        return 'Нет доступа к микрофону. Разрешите его в настройках мессенджера или браузера.'
       case 'NotFoundError':
       case 'DevicesNotFoundError':
         return 'Микрофон не найден. Подключите его и попробуйте снова.'

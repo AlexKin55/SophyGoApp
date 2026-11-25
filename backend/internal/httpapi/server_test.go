@@ -299,7 +299,7 @@ func TestPlaceOpenAnonymousStoresEvent(t *testing.T) {
 func TestPlaceOpenWithTelegramStoresUserAndSession(t *testing.T) {
 	env := newTestEnv(t)
 	user := testUser(42)
-	info := env.guide.Ensure(user.ID)
+	info := env.guide.Ensure(user.ID, user.FirstName)
 	initData := makeInitData(t, testBotToken, user)
 
 	recorder := doJSON(t, env.handler, http.MethodPost, "/api/v1/events/place-open", validBody(info.ID), initData)
@@ -323,7 +323,7 @@ func TestPlaceOpenWithTelegramStoresUserAndSession(t *testing.T) {
 func TestPlaceOpenDeliversPromptToRealtime(t *testing.T) {
 	env := newTestEnv(t)
 	user := testUser(42)
-	info := env.guide.Ensure(user.ID)
+	info := env.guide.Ensure(user.ID, user.FirstName)
 	sender := &fakeSender{}
 	if _, err := env.guide.Attach(info.ID, sender); err != nil {
 		t.Fatalf("Attach вернул ошибку: %v", err)
@@ -357,7 +357,7 @@ func TestPlaceOpenDeliversPromptToRealtime(t *testing.T) {
 
 func TestPlaceOpenRejectsForeignSession(t *testing.T) {
 	env := newTestEnv(t)
-	ownerSession := env.guide.Ensure(1)
+	ownerSession := env.guide.Ensure(1, "User")
 	initData := makeInitData(t, testBotToken, testUser(2))
 
 	recorder := doJSON(t, env.handler, http.MethodPost, "/api/v1/events/place-open", validBody(ownerSession.ID), initData)
@@ -409,7 +409,7 @@ func TestPlaceOpenRejectsOversizedBody(t *testing.T) {
 func TestStopSession(t *testing.T) {
 	env := newTestEnv(t)
 	user := testUser(42)
-	info := env.guide.Ensure(user.ID)
+	info := env.guide.Ensure(user.ID, user.FirstName)
 	sender := &fakeSender{}
 	if _, err := env.guide.Attach(info.ID, sender); err != nil {
 		t.Fatalf("Attach вернул ошибку: %v", err)
@@ -430,7 +430,7 @@ func TestStopSession(t *testing.T) {
 func TestStopSessionWithoutRealtime(t *testing.T) {
 	env := newTestEnv(t)
 	user := testUser(42)
-	info := env.guide.Ensure(user.ID)
+	info := env.guide.Ensure(user.ID, user.FirstName)
 	initData := makeInitData(t, testBotToken, user)
 
 	recorder := doJSON(t, env.handler, http.MethodPost, "/api/v1/session/"+info.ID+"/stop", "", initData)
@@ -441,7 +441,7 @@ func TestStopSessionWithoutRealtime(t *testing.T) {
 
 func TestStopForeignSession(t *testing.T) {
 	env := newTestEnv(t)
-	info := env.guide.Ensure(1)
+	info := env.guide.Ensure(1, "User")
 	initData := makeInitData(t, testBotToken, testUser(2))
 
 	recorder := doJSON(t, env.handler, http.MethodPost, "/api/v1/session/"+info.ID+"/stop", "", initData)
@@ -538,7 +538,7 @@ func TestCORSDoesNotAllowUnknownOrigin(t *testing.T) {
 
 func TestRealtimeRequiresConfiguration(t *testing.T) {
 	env := newTestEnv(t)
-	info := env.guide.Ensure(42)
+	info := env.guide.Ensure(42, "User")
 	token, err := env.guide.IssueToken(info.ID)
 	if err != nil {
 		t.Fatalf("IssueToken вернул ошибку: %v", err)
